@@ -1,0 +1,24 @@
+# Rapid Resolve Production Dockerfile
+FROM node:20-alpine AS build
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=5000
+
+COPY package*.json ./
+RUN npm install --omit=dev
+
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/server.js ./server.js
+COPY --from=build /app/admin_credentials.json ./admin_credentials.json
+
+EXPOSE 5000
+CMD ["node", "server.js"]

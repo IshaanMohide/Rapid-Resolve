@@ -1,0 +1,194 @@
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+const Anthropic = require('@anthropic-ai/sdk');
+const twilio = require('twilio');
+const axios = require('axios');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Database Connection
+const db = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/rapidresolve'
+});
+
+// AI & SMS Clients
+const geminiApiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
+// AI Triage Function using Gemini & Claude
+async function triageIssueWithAI(description) {
+  const prompt = `You are the Rapid Resolve Enterprise AI Triage engine.
+Analyze the citizen report and use your intelligence to determine:
+1. The exact urgency level (CRITICAL, HIGH, MEDIUM, LOW)
+2. The single most appropriate specialized municipal department from the list below
+3. The category and SLA timer
+
+AVAILABLE SPECIALIZED DEPARTMENTS:
+- "Disaster Management & Flood Control": Flooding, flash floods, water submergence, heavy rain inundation, dam overflows.
+- "Fire & Rescue Services": Fire outbreaks, transformer sparks/flames, building collapse, cylinder blasts, gas leaks, entrapped persons.
+- "Emergency Medical & Ambulance": Road casualties, severe trauma injuries, unconscious citizens, hospital emergency transit.
+- "Water Supply & Sewerage Board": Ruptured water mains, pipeline bursts, contaminated drinking water, sewer overflows, drain chokes.
+- "Electricity & Power Distribution": Transformer explosion, hanging high-voltage wires, power blackout, electrical short circuits.
+- "Roads, Bridges & Infrastructure": Potholes, road craters, cave-ins, flyover structural damage, broken dividers.
+- "Traffic Police & Road Safety": Malfunctioning traffic lights, highway gridlocks, illegal road blocking, missing road signs.
+- "Public Health, Sanitation & Waste": Stinking garbage piles, open drains, municipal solid waste, dead animal disposal.
+- "Pollution Control & Environment": Toxic chemical dumping, industrial factory emissions, hazardous chemical spills.
+- "Parks, Trees & Horticulture": Fallen trees blocking traffic, hazardous overgrown branches, municipal park damage.
+- "Town Planning & Building Safety": Dilapidated dangerous buildings, cracking walls, illegal hazardous construction.
+- "Stray Animal & Veterinary Control": Stray cattle causing road accidents, aggressive stray dogs, animal welfare.
+
+URGENCY GUIDELINES:
+- CRITICAL (<30m SLA, is_emergency=true): Active floods, submerging streets, gas leaks, active fires, building collapse, high voltage wire shock risks, fatal accidents.
+- HIGH (2h SLA, is_emergency=false): Major water pipeline rupture, sewage flooding streets, total area blackout, large pothole on busy highway.
+- MEDIUM (6-8h SLA, is_emergency=false): Standard potholes, traffic signal outage, garbage heap, fallen branches.
+- LOW (12-24h SLA, is_emergency=false): Minor street sweeping, non-blocking park maintenance, cosmetic civic repairs.
+
+Return ONLY valid JSON matching this schema:
+{
+  "category": string,
+  "urgency": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+  "department": "Disaster Management & Flood Control" | "Fire & Rescue Services" | "Emergency Medical & Ambulance" | "Water Supply & Sewerage Board" | "Electricity & Power Distribution" | "Roads, Bridges & Infrastructure" | "Traffic Police & Road Safety" | "Public Health, Sanitation & Waste" | "Pollution Control & Environment" | "Parks, Trees & Horticulture" | "Town Planning & Building Safety" | "Stray Animal & Veterinary Control",
+  "sla_hours": number,
+  "is_emergency": boolean
+}
+
+Citizen Report: "${description}"`;
+
+  // 1. Google Gemini Live AI Triage
+  if (geminiApiKey) {
+    try {
+      const res = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiApiKey}`,
+        {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
+        }
+      );
+      const rawText = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (rawText) return JSON.parse(rawText);
+    } catch (err) {
+      console.warn('Gemini API triage failed, checking Claude or local fallback:', err.message);
+    }
+  }
+
+  // 2. Anthropic Claude Fallback
+  if (anthropic) {
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 300,
+        messages: [{ role: 'user', content: prompt }]
+      });
+      const rawText = response.content[0].text;
+      return JSON.parse(rawText);
+    } catch (err) {
+      console.warn('Claude API failed:', err.message);
+    }
+  }
+
+// POST: Citizen submits issue (Chat / Voice entry)
+app.post('/api/tickets', async (req, res) => {
+  const { description, location_name, latitude, longitude } = req.body;
+
+  try {
+    // 1. AI Classification & Urgency Scoring
+    const triage = await triageIssueWithAI(description);
+
+    // 2. SLA Timer Calculation
+    const slaDeadline = new Date(Date.now() + triage.sla_hours * 60 * 60 * 1000);
+
+    // 3. Store in PostgreSQL
+    const result = await db.query(
+      `INSERT INTO tickets 
+      (description, category, urgency, department, location_name, latitude, longitude, sla_deadline, is_emergency)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [
+        description,
+        triage.category,
+        triage.urgency,
+        triage.department,
+        location_name || 'Sector 5',
+        latitude || 19.8762,
+        longitude || 75.3433,
+        slaDeadline,
+        triage.is_emergency
+      ]
+    );
+
+    const ticket = result.rows[0];
+
+    // 4. Emergency Bypass Path: Instant SMS Escalation
+    if (ticket.urgency === 'CRITICAL' || ticket.is_emergency) {
+      await twilioClient.messages.create({
+        body: `[EMERGENCY DISPATCH - RAPIDRESOLVE] Ticket #${ticket.id} (${ticket.category}): "${ticket.description}" at ${ticket.location_name}. Respond immediately.`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: process.env.RESPONDER_PHONE_NUMBER
+      });
+    }
+
+    res.status(201).json({ success: true, ticket });
+  } catch (error) {
+    console.error('Triage Error:', error);
+    res.status(500).json({ error: 'Failed to triage and route ticket' });
+  }
+});
+
+// GET: Admin Dashboard Tickets & Metrics
+app.get('/api/tickets', async (req, res) => {
+  try {
+    const tickets = await db.query('SELECT * FROM tickets ORDER BY created_at DESC');
+    res.json(tickets.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH: Human-in-the-loop override queue (Deletes problem if status is RESOLVED)
+app.patch('/api/tickets/:id/override', async (req, res) => {
+  const { id } = req.params;
+  const { urgency, department, status } = req.body;
+  try {
+    if (status === 'RESOLVED') {
+      const delRes = await db.query('DELETE FROM tickets WHERE id = $1 RETURNING *', [id]);
+      if (delRes.rows.length === 0) {
+        return res.status(404).json({ error: 'Ticket not found' });
+      }
+      return res.json({ success: true, deleted: true, id: Number(id), message: 'Ticket resolved and deleted' });
+    }
+
+    const updated = await db.query(
+      `UPDATE tickets 
+       SET urgency = COALESCE($1, urgency),
+           department = COALESCE($2, department),
+           status = COALESCE($3, status)
+       WHERE id = $4 RETURNING *`,
+      [urgency, department, status, id]
+    );
+    res.json(updated.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE: Delete a problem/ticket
+app.delete('/api/tickets/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query('DELETE FROM tickets WHERE id = $1 RETURNING *', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    res.json({ success: true, deleted: true, id: Number(id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+const HOST = '0.0.0.0';
+app.listen(PORT, HOST, () => console.log(`Rapid Resolve API running on port ${PORT}`));
