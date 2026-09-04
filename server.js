@@ -236,7 +236,7 @@ Citizen Report: "${description}"`;
         },
         {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 15000
+          timeout: 5000
         }
       );
 
@@ -696,10 +696,14 @@ if (fs.existsSync(distPath)) {
 // -----------------------------------------------------------------------------
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
-app.listen(PORT, HOST, () => {
-  console.log(`\n======================================================`);
-  console.log(`🚀 Rapid Resolve Unified Server running on http://${HOST}:${PORT}`);
-  console.log(`📡 Healthcheck: http://${HOST}:${PORT}/api/health`);
-  console.log(`📋 Tickets API: http://${HOST}:${PORT}/api/tickets`);
-  console.log(`======================================================\n`);
-});
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+  app.listen(PORT, HOST, () => {
+    console.log(`\n======================================================`);
+    console.log(`🚀 Rapid Resolve Unified Server running on http://${HOST}:${PORT}`);
+    console.log(`📡 Healthcheck: http://${HOST}:${PORT}/api/health`);
+    console.log(`📋 Tickets API: http://${HOST}:${PORT}/api/tickets`);
+    console.log(`======================================================\n`);
+  });
+}
+
+export default app;
