@@ -33,6 +33,7 @@ import EmergencyMap from './EmergencyMap';
 import SLAChart from './SLAChart';
 import LocationPickerModal from './LocationPickerModal';
 import ComplaintTracker from './ComplaintTracker';
+import CommandCenter from './CommandCenter';
 import { ErrorBoundary } from './ErrorBoundary';
 
 // Relative API base connects seamlessly in both Vite proxy dev and Express unified production
@@ -141,7 +142,7 @@ function triageClientSide(description, locationName, coords) {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('citizen'); // 'citizen', 'track', or 'admin'
+  const [activeTab, setActiveTab] = useState('command'); // 'command', 'citizen', 'track', or 'admin'
   const [trackedTicketId, setTrackedTicketId] = useState('');
   const [tickets, setTickets] = useState([]);
   const [health, setHealth] = useState(null);
@@ -299,7 +300,9 @@ export default function App() {
   };
 
   const handleTabSwitch = (tab) => {
-    if (tab === 'admin') {
+    if (tab === 'command') {
+      setActiveTab('command');
+    } else if (tab === 'admin') {
       if (!isAdminAuthenticated) {
         setAdminLoginError('');
         setShowAdminLoginModal(true);
@@ -453,6 +456,14 @@ export default function App() {
   const criticalCount = safeTickets.filter((t) => t.urgency === 'CRITICAL' || t.is_emergency).length;
   const inProgressCount = safeTickets.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'DISPATCHED').length;
 
+  if (activeTab === 'command') {
+    return (
+      <ErrorBoundary fallbackTitle="Global Operations Command Center Error">
+        <CommandCenter activeTab={activeTab} onTabChange={handleTabSwitch} />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary fallbackTitle="Rapid Resolve Application Error">
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -490,6 +501,17 @@ export default function App() {
 
           {/* View Switcher Tabs */}
           <div className="flex bg-slate-800/90 border border-slate-700/80 rounded-xl p-1 shadow-inner">
+            <button
+              onClick={() => handleTabSwitch('command')}
+              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
+                activeTab === 'command'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              <Activity className="w-4 h-4 text-cyan-400" />
+              <span>Command Deck</span>
+            </button>
             <button
               onClick={() => handleTabSwitch('citizen')}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
