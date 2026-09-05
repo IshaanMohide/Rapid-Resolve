@@ -278,6 +278,26 @@ html, body {
   font-family: 'Inter', system-ui, sans-serif !important;
   border-radius: 8px;
   z-index: 10 !important;
+  background: #f1f5f9 !important;
+}
+
+/* Critical Anti-Flicker & Anti-Blink Leaflet Rules */
+.leaflet-container img {
+  max-width: none !important;
+  max-height: none !important;
+  image-rendering: auto;
+}
+
+.leaflet-tile {
+  visibility: inherit !important;
+}
+
+.leaflet-tile-container {
+  contain: layout paint;
+}
+
+.leaflet-zoom-animated {
+  will-change: auto !important;
 }
 
 .leaflet-popup-content-wrapper {

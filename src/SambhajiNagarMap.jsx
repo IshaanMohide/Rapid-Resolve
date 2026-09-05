@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, Navigation, Shield, AlertTriangle, CheckCircle, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
 
 // Key Municipal Wards & Response Hubs in Chhatrapati Sambhaji Nagar
 export const SAMBHAJI_NAGAR_WARDS = [
@@ -15,7 +15,11 @@ export const SAMBHAJI_NAGAR_WARDS = [
   { name: "TV Centre / HUDCO", lat: 19.9042, lng: 75.3491, type: "Water Reservoir & Supply Line", status: "Critical", alerts: 5 }
 ];
 
-export default function SambhajiNagarMap({
+// Module-level persistent coordinates and zoom level so the map NEVER resets its view
+let persistentCenter = [19.8762, 75.3433];
+let persistentZoom = 13;
+
+function SambhajiNagarMapComponent({
   tickets = [],
   selectedWard = null,
   onSelectWard = () => {}
@@ -24,39 +28,65 @@ export default function SambhajiNagarMap({
   const mapInstanceRef = useRef(null);
   const wardLayerRef = useRef(null);
   const ticketLayerRef = useRef(null);
+  const lastDimensionsRef = useRef({ width: 0, height: 0 });
   const onSelectWardRef = useRef(onSelectWard);
   onSelectWardRef.current = onSelectWard;
 
-  // 1. Initialize Map ONCE on mount (Never re-create map or reload tiles to eliminate blinking)
+  // 1. Initialize Leaflet Map ONCE on mount with anti-flicker & persistent settings
   useEffect(() => {
     if (!mapContainerRef.current) return;
-
-    if (mapInstanceRef.current) {
-      return;
-    }
+    if (mapInstanceRef.current) return;
 
     try {
+      // Clean up any residual leaflet DOM ID before initialization
+      if (mapContainerRef.current._leaflet_id) {
+        delete mapContainerRef.current._leaflet_id;
+      }
+
       const map = L.map(mapContainerRef.current, {
-        center: [19.8762, 75.3433],
-        zoom: 13,
+        center: persistentCenter,
+        zoom: persistentZoom,
+        minZoom: 10,
+        maxZoom: 18,
+        zoomSnap: 1,
+        zoomDelta: 1,
+        zoomAnimation: false,       // Disables Chromium 3D transform flash/blink on zoom
+        fadeAnimation: false,       // Disables tile opacity blink
+        markerZoomAnimation: false, // Keeps pins steady during zoom
         scrollWheelZoom: true,
-        zoomControl: false
+        zoomControl: false,
+        preferCanvas: true
       });
       mapInstanceRef.current = map;
 
-      // Clean OpenStreetMap light tile layer
+      // Track pan and zoom so user position is NEVER lost or reset
+      map.on('moveend zoomend', () => {
+        try {
+          const c = map.getCenter();
+          persistentCenter = [c.lat, c.lng];
+          persistentZoom = map.getZoom();
+        } catch {
+          // ignore
+        }
+      });
+
+      // High-performance OpenStreetMap layer with deep tile cache
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 19
+        maxZoom: 18,
+        minZoom: 10,
+        keepBuffer: 16,             // Keeps 16 tiles in memory to prevent blank areas on zoom
+        updateWhenZooming: false,   // Eliminates tile churn during zoom
+        updateWhenIdle: true
       }).addTo(map);
 
-      // Separate layers for wards and incidents
+      // Separate layers for static wards and dynamic tickets
       const wardLayer = L.layerGroup().addTo(map);
       const ticketLayer = L.layerGroup().addTo(map);
       wardLayerRef.current = wardLayer;
       ticketLayerRef.current = ticketLayer;
 
-      // Render Static Municipal Ward Markers (Steady, No Blinking)
+      // Render Static Ward Markers (Clean, Steady SVG, No Blinking)
       SAMBHAJI_NAGAR_WARDS.forEach((w) => {
         const isCritical = w.status === 'Critical';
         const color = isCritical ? '#e11d48' : '#0284c7';
@@ -121,31 +151,38 @@ export default function SambhajiNagarMap({
         });
       });
 
-      // Schedule a single invalidateSize call to settle layout without flickering
+      // Record initial container dimensions
+      if (mapContainerRef.current) {
+        lastDimensionsRef.current = {
+          width: mapContainerRef.current.clientWidth,
+          height: mapContainerRef.current.clientHeight
+        };
+      }
+
+      // Initial dimension settle
       const timer = setTimeout(() => {
         if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize();
+          mapInstanceRef.current.invalidateSize({ pan: false });
         }
-      }, 150);
+      }, 200);
 
-      return () => clearTimeout(timer);
+      // Single proper cleanup
+      return () => {
+        clearTimeout(timer);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.remove();
+          mapInstanceRef.current = null;
+        }
+      };
     } catch (err) {
       console.error('Failed to initialize Leaflet Map:', err);
     }
+  }, []);
 
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
-    };
-  }, []); // Run ONCE on mount
-
-  // 2. Update Incident Pins without destroying or reloading the map
+  // 2. Update Incident Pins in-place without touching tiles or map center
   useEffect(() => {
     if (!ticketLayerRef.current) return;
 
-    // Clear only ticket layer (map and tiles stay completely untouched)
     ticketLayerRef.current.clearLayers();
 
     const safeTickets = Array.isArray(tickets) && tickets.length > 0 ? tickets : [
@@ -164,7 +201,6 @@ export default function SambhajiNagarMap({
       const isCritical = t.urgency === 'CRITICAL' || t.is_emergency;
       const pinColor = isResolved ? '#059669' : isCritical ? '#e11d48' : t.urgency === 'HIGH' ? '#d97706' : '#0284c7';
 
-      // Steady, clean SVG/HTML pin (NO BLINKING)
       const incidentIcon = L.divIcon({
         className: 'csn-incident-pin',
         html: `
@@ -210,31 +246,52 @@ export default function SambhajiNagarMap({
     });
   }, [tickets]);
 
-  // 3. Smooth Pan to selected ward
+  // 3. Pan to selected ward only when user explicitly chooses a ward
   useEffect(() => {
     if (selectedWard && mapInstanceRef.current) {
-      const w = SAMBHAJI_NAGAR_WARDS.find(x => x.name === selectedWard);
+      const w = SAMBHAJI_NAGAR_WARDS.find((x) => x.name === selectedWard);
       if (w) {
-        mapInstanceRef.current.flyTo([w.lat, w.lng], 14.5, { duration: 0.8 });
+        persistentCenter = [w.lat, w.lng];
+        persistentZoom = 15;
+        mapInstanceRef.current.setView([w.lat, w.lng], 15, { animate: false });
       }
     }
   }, [selectedWard]);
 
-  // 4. Window resize handler
+  // 4. Smart resize handler: ONLY triggers invalidateSize if element dimensions ACTUALLY changed
   useEffect(() => {
+    let resizeTimer = null;
     const handleResize = () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.invalidateSize();
-      }
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (!mapContainerRef.current || !mapInstanceRef.current) return;
+        const currentWidth = mapContainerRef.current.clientWidth;
+        const currentHeight = mapContainerRef.current.clientHeight;
+
+        // If dimensions haven't changed (e.g. wheel zoom or scroll), DO NOT reset or invalidate
+        if (
+          Math.abs(currentWidth - lastDimensionsRef.current.width) > 4 ||
+          Math.abs(currentHeight - lastDimensionsRef.current.height) > 4
+        ) {
+          lastDimensionsRef.current = { width: currentWidth, height: currentHeight };
+          mapInstanceRef.current.invalidateSize({ pan: false, debounceMoveEvents: true });
+        }
+      }, 150);
     };
+
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      clearTimeout(resizeTimer);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   const handleQuickZoom = (wardName) => {
-    const w = SAMBHAJI_NAGAR_WARDS.find(x => x.name.includes(wardName));
+    const w = SAMBHAJI_NAGAR_WARDS.find((x) => x.name.includes(wardName));
     if (w && mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo([w.lat, w.lng], 15, { duration: 0.8 });
+      persistentCenter = [w.lat, w.lng];
+      persistentZoom = 15;
+      mapInstanceRef.current.setView([w.lat, w.lng], 15, { animate: false });
       if (onSelectWardRef.current) {
         onSelectWardRef.current(w.name);
       }
@@ -242,25 +299,34 @@ export default function SambhajiNagarMap({
   };
 
   const handleResetView = () => {
+    persistentCenter = [19.8762, 75.3433];
+    persistentZoom = 13;
     if (mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo([19.8762, 75.3433], 13, { duration: 0.8 });
-      if (onSelectWardRef.current) {
-        onSelectWardRef.current(null);
-      }
+      mapInstanceRef.current.setView([19.8762, 75.3433], 13, { animate: false });
+    }
+    if (onSelectWardRef.current) {
+      onSelectWardRef.current(null);
     }
   };
 
   const handleZoomIn = () => {
-    if (mapInstanceRef.current) mapInstanceRef.current.zoomIn();
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.zoomIn();
+    }
   };
 
   const handleZoomOut = () => {
-    if (mapInstanceRef.current) mapInstanceRef.current.zoomOut();
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.zoomOut();
+    }
   };
 
   return (
-    <div className="relative w-full rounded-xl overflow-hidden border border-slate-200 shadow-sm flex flex-col bg-slate-100" style={{ height: '420px', minHeight: '380px' }}>
-      {/* Top Left Title Overlay (Steady Green Dot, No Blinking) */}
+    <div
+      className="relative w-full rounded-xl overflow-hidden border border-slate-200 shadow-sm flex flex-col bg-slate-100"
+      style={{ height: '420px', minHeight: '380px' }}
+    >
+      {/* Top Left Title Overlay (Steady Indicator) */}
       <div className="absolute top-3 left-3 z-[400] bg-white/95 backdrop-blur-md border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm pointer-events-auto">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-200" />
@@ -278,6 +344,7 @@ export default function SambhajiNagarMap({
         {['Kranti Chowk', 'CIDCO', 'Waluj', 'Garkheda'].map((wName) => (
           <button
             key={wName}
+            type="button"
             onClick={() => handleQuickZoom(wName)}
             className="text-[11px] font-semibold bg-white/95 hover:bg-sky-50 text-slate-700 hover:text-sky-700 border border-slate-200 px-2.5 py-1 rounded-md shadow-sm transition"
           >
@@ -285,6 +352,7 @@ export default function SambhajiNagarMap({
           </button>
         ))}
         <button
+          type="button"
           onClick={handleResetView}
           className="text-[11px] font-semibold bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 px-2 py-1 rounded-md shadow-sm transition flex items-center gap-1"
         >
@@ -295,6 +363,7 @@ export default function SambhajiNagarMap({
       {/* Custom Zoom Buttons */}
       <div className="absolute bottom-12 right-3 z-[400] flex flex-col gap-1 pointer-events-auto">
         <button
+          type="button"
           onClick={handleZoomIn}
           className="w-7 h-7 bg-white hover:bg-slate-50 border border-slate-200 rounded-md shadow-sm text-slate-700 font-bold flex items-center justify-center transition"
           title="Zoom In"
@@ -302,6 +371,7 @@ export default function SambhajiNagarMap({
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
         <button
+          type="button"
           onClick={handleZoomOut}
           className="w-7 h-7 bg-white hover:bg-slate-50 border border-slate-200 rounded-md shadow-sm text-slate-700 font-bold flex items-center justify-center transition"
           title="Zoom Out"
@@ -310,7 +380,7 @@ export default function SambhajiNagarMap({
         </button>
       </div>
 
-      {/* Leaflet Map Target DOM */}
+      {/* Leaflet Map Target DOM with explicit height */}
       <div
         ref={mapContainerRef}
         className="w-full h-full flex-1"
@@ -340,3 +410,6 @@ export default function SambhajiNagarMap({
     </div>
   );
 }
+
+const SambhajiNagarMap = React.memo(SambhajiNagarMapComponent);
+export default SambhajiNagarMap;

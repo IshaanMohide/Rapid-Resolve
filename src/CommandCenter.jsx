@@ -103,9 +103,9 @@ export default function CommandCenter({
   const [overrideDepartment, setOverrideDepartment] = useState('Roads & Infrastructure');
   const [overrideStatus, setOverrideStatus] = useState('OPEN');
 
-  const handleSelectWard = (name) => {
+  const handleSelectWard = useCallback((name) => {
     setSelectedWard(name);
-  };
+  }, []);
 
   // Handle Login submission
   const handleLoginSubmit = async (e) => {
