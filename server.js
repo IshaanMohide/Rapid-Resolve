@@ -511,6 +511,53 @@ app.post('/api/admin/verify', (req, res) => {
   });
 });
 
+// -----------------------------------------------------------------------------
+// Real-Time Events (Server-Sent Events)
+// -----------------------------------------------------------------------------
+const sseClients = new Set();
+
+app.get('/api/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.flushHeaders) res.flushHeaders();
+
+  sseClients.add(res);
+
+  // Initial connection handshake
+  res.write(`event: connected\ndata: ${JSON.stringify({ time: new Date().toISOString() })}\n\n`);
+  res.write(`event: initial\ndata: ${JSON.stringify(inMemoryTickets)}\n\n`);
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+      sseClients.delete(res);
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    sseClients.delete(res);
+  });
+});
+
+function broadcastEvent(eventType, payload) {
+  const normalized = (payload && payload.id && !payload.ticket)
+    ? { ticket: payload, ...payload }
+    : payload;
+  const message = `event: ${eventType}\ndata: ${JSON.stringify(normalized)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(message);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
 // GET: All Tickets
 app.get('/api/tickets', async (req, res) => {
   try {
@@ -635,6 +682,9 @@ app.post('/api/tickets', async (req, res) => {
       await dispatchEmergencyNotification(ticket);
     }
 
+    // Broadcast real-time event to all connected citizens & commanders
+    broadcastEvent('ticket_created', ticket);
+
     res.status(201).json({ success: true, ticket });
   } catch (error) {
     console.error('Triage Error:', error);
@@ -667,6 +717,7 @@ app.patch('/api/tickets/:id/override', async (req, res) => {
       if (updated.rows.length === 0) {
         return res.status(404).json({ error: 'Ticket not found' });
       }
+      broadcastEvent('ticket_updated', updated.rows[0]);
       return res.json(updated.rows[0]);
     }
 
@@ -686,6 +737,7 @@ app.patch('/api/tickets/:id/override', async (req, res) => {
     }
     if (resolution_notes) target.resolution_notes = resolution_notes;
 
+    broadcastEvent('ticket_updated', target);
     res.json(target);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -701,6 +753,7 @@ app.delete('/api/tickets/:id', async (req, res) => {
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Ticket not found' });
       }
+      broadcastEvent('ticket_deleted', { id: Number(id) });
       return res.json({ success: true, deleted: true, id: Number(id) });
     }
 
@@ -709,6 +762,7 @@ app.delete('/api/tickets/:id', async (req, res) => {
       return res.status(404).json({ error: 'Ticket not found' });
     }
     const removedTicket = inMemoryTickets.splice(targetIdx, 1)[0];
+    broadcastEvent('ticket_deleted', { id: Number(id) });
     res.json({ success: true, deleted: true, id: Number(id), ticket: removedTicket });
   } catch (err) {
     res.status(500).json({ error: err.message });

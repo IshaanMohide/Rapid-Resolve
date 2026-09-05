@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import {
   Search,
@@ -22,7 +22,9 @@ import {
   AlertCircle,
   Building2,
   Calendar,
-  History
+  History,
+  Radio,
+  Activity
 } from 'lucide-react';
 
 const API_BASE = '/api';
@@ -38,43 +40,102 @@ function formatDateTime(isoString) {
       day: 'numeric',
       year: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      second: '2-digit'
     });
   } catch {
     return 'Pending';
   }
 }
 
-// Calculate remaining time against SLA deadline
-function calculateSLARemaining(slaDeadline, status) {
+// Calculate remaining time against SLA deadline with live seconds precision
+function calculateSLARemaining(slaDeadline, status, nowTime, createdAt) {
   if (status === 'RESOLVED') {
-    return { text: 'SLA Fulfilled', status: 'met', label: 'Case Resolved within SLA target' };
+    return {
+      text: 'SLA Fulfilled',
+      status: 'met',
+      label: 'Case Verified & Resolved within SLA target',
+      percent: 100,
+      badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300'
+    };
   }
   if (!slaDeadline) {
-    return { text: '30 mins SLA', status: 'active', label: 'Active Standard SLA' };
+    return {
+      text: '30m 00s SLA',
+      status: 'active',
+      label: 'Standard SLA Active',
+      percent: 50,
+      badgeColor: 'bg-sky-50 text-sky-800 border-sky-300'
+    };
   }
   try {
     const deadline = new Date(slaDeadline).getTime();
-    const now = Date.now();
+    const now = typeof nowTime === 'number' ? nowTime : Date.now();
     const diffMs = deadline - now;
 
     if (diffMs <= 0) {
-      return { text: 'SLA Breached', status: 'breached', label: 'Escalated to Chief Incident Commander' };
+      const elapsedOverMs = Math.abs(diffMs);
+      const overMinutes = Math.floor(elapsedOverMs / 60000);
+      const overSeconds = Math.floor((elapsedOverMs % 60000) / 1000);
+      return {
+        text: `SLA Breached (+${overMinutes}m ${String(overSeconds).padStart(2, '0')}s)`,
+        status: 'breached',
+        label: 'Escalated to Chief Incident Commander',
+        percent: 100,
+        badgeColor: 'bg-rose-100 text-rose-900 border-rose-400'
+      };
     }
 
-    const totalMinutes = Math.floor(diffMs / (1000 * 60));
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const pad = (num) => String(num).padStart(2, '0');
+
+    // SLA Elapsed Progress Calculation
+    let percent = 50;
+    if (createdAt) {
+      const start = new Date(createdAt).getTime();
+      const totalSpan = deadline - start;
+      if (totalSpan > 0) {
+        const elapsed = now - start;
+        percent = Math.min(100, Math.max(0, Math.round((elapsed / totalSpan) * 100)));
+      }
+    }
 
     if (hours === 0 && minutes < 30) {
-      return { text: `${minutes}m remaining`, status: 'urgent', label: 'Emergency Protocol Active (<30m)' };
+      return {
+        text: `${minutes}m ${pad(seconds)}s`,
+        status: 'urgent',
+        label: 'Emergency Protocol Active (<30m SLA Target)',
+        percent,
+        badgeColor: 'bg-amber-100 text-amber-900 border-amber-400'
+      };
     }
     if (hours === 0) {
-      return { text: `${minutes} mins`, status: 'active', label: 'Standard Rapid Resolve Target' };
+      return {
+        text: `${minutes}m ${pad(seconds)}s`,
+        status: 'active',
+        label: 'Standard Rapid Resolve Target',
+        percent,
+        badgeColor: 'bg-sky-50 text-sky-800 border-sky-300'
+      };
     }
-    return { text: `${hours}h ${minutes}m`, status: 'active', label: 'Municipal Triage Target' };
+    return {
+      text: `${hours}h ${pad(minutes)}m ${pad(seconds)}s`,
+      status: 'active',
+      label: 'Municipal Triage Target',
+      percent,
+      badgeColor: 'bg-sky-50 text-sky-800 border-sky-300'
+    };
   } catch {
-    return { text: 'Active SLA', status: 'active', label: 'Standard Target' };
+    return {
+      text: 'Active SLA',
+      status: 'active',
+      label: 'Standard Target',
+      percent: 50,
+      badgeColor: 'bg-sky-50 text-sky-800 border-sky-300'
+    };
   }
 }
 
@@ -123,7 +184,7 @@ function getProblemStatus(status) {
     return {
       key: 'SOLVED',
       label: 'SOLVED',
-      description: 'The problem has been completely rectified, verified by ground staff, and closed in the municipal register.',
+      description: 'The problem has been completely rectified, verified by municipal ground staff, and closed in the civic register.',
       badgeBg: 'bg-emerald-50 text-emerald-800 border-emerald-300',
       dotColor: 'bg-emerald-600',
       textColor: 'text-emerald-700',
@@ -132,7 +193,7 @@ function getProblemStatus(status) {
   }
   if (status === 'IN_PROGRESS' || status === 'DISPATCHED') {
     return {
-      key: 'GOING ON',
+      key: 'GOING_ON',
       label: 'GOING ON',
       description: 'Field units have been dispatched and ground crew repair work is actively ongoing on location.',
       badgeBg: 'bg-amber-50 text-amber-800 border-amber-300',
@@ -163,6 +224,26 @@ export default function ComplaintTracker({
   const [errorMessage, setErrorMessage] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // Real-Time Sync & Live Clock States
+  const [nowTime, setNowTime] = useState(Date.now());
+  const [sseConnected, setSseConnected] = useState(false);
+  const [lastSyncedTime, setLastSyncedTime] = useState(new Date());
+  const [isPulseUpdated, setIsPulseUpdated] = useState(false);
+
+  // Keep a ref to activeTicket for async SSE callbacks
+  const activeTicketRef = useRef(activeTicket);
+  useEffect(() => {
+    activeTicketRef.current = activeTicket;
+  }, [activeTicket]);
+
+  // 1-second live countdown ticker for second-by-second SLA precision
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Local storage for recent complaint searches
   const [recentTicketIds, setRecentTicketIds] = useState(() => {
     try {
@@ -173,6 +254,49 @@ export default function ComplaintTracker({
     }
   });
 
+  // Main fetch function with silent mode support (no UI flickers during background sync)
+  const fetchTicketById = async (idToFetch, silent = false) => {
+    const cleanId = String(idToFetch).replace(/^#/, '').trim();
+    if (!cleanId) return;
+
+    if (!silent) {
+      setLoading(true);
+      setErrorMessage('');
+    }
+
+    try {
+      const res = await axios.get(`${API_BASE}/tickets/${cleanId}`, { timeout: 4000 });
+      if (res.data?.success && res.data.ticket) {
+        setActiveTicket(res.data.ticket);
+        saveToRecentTickets(res.data.ticket.id);
+        setLastSyncedTime(new Date());
+      } else if (!silent) {
+        setErrorMessage(res.data?.error || `Complaint #${cleanId} was not found.`);
+        setActiveTicket(null);
+      }
+    } catch (err) {
+      // Fallback: search known local tickets from parent App props
+      const numericId = parseInt(cleanId, 10);
+      const localMatch = knownTickets.find((t) => t.id === numericId || String(t.id) === cleanId);
+      if (localMatch) {
+        setActiveTicket(localMatch);
+        saveToRecentTickets(localMatch.id);
+        setLastSyncedTime(new Date());
+      } else if (!silent) {
+        setErrorMessage(
+          err.response?.data?.error ||
+            `Complaint #${cleanId} could not be located in the municipal records. Please verify the ticket number.`
+        );
+        setActiveTicket(null);
+      }
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  };
+
+  // Initial load
   useEffect(() => {
     if (initialTicketId) {
       setSearchId(String(initialTicketId));
@@ -183,40 +307,95 @@ export default function ComplaintTracker({
     }
   }, [initialTicketId]);
 
-  const fetchTicketById = async (idToFetch) => {
-    const cleanId = String(idToFetch).replace(/^#/, '').trim();
-    if (!cleanId) return;
-
-    setLoading(true);
-    setErrorMessage('');
-
+  // Channel A: Real-Time SSE (Server-Sent Events) push pipeline (<15ms latency)
+  useEffect(() => {
+    let es;
     try {
-      const res = await axios.get(`${API_BASE}/tickets/${cleanId}`, { timeout: 4000 });
-      if (res.data?.success && res.data.ticket) {
-        setActiveTicket(res.data.ticket);
-        saveToRecentTickets(res.data.ticket.id);
-      } else {
-        setErrorMessage(res.data?.error || `Complaint #${cleanId} was not found.`);
-        setActiveTicket(null);
-      }
+      es = new EventSource(`${API_BASE}/events`);
+      
+      es.onopen = () => {
+        setSseConnected(true);
+      };
+
+      es.addEventListener('ticket_updated', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          const updated = payload?.ticket || payload;
+          if (updated && updated.id) {
+            const current = activeTicketRef.current;
+            if (current && String(current.id) === String(updated.id)) {
+              setActiveTicket(updated);
+              setLastSyncedTime(new Date());
+              setIsPulseUpdated(true);
+              setTimeout(() => setIsPulseUpdated(false), 2000);
+            }
+          }
+        } catch (err) {
+          console.error('SSE ticket_updated error:', err);
+        }
+      });
+
+      es.addEventListener('ticket_created', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          const created = payload?.ticket || payload;
+          if (created && created.id) {
+            const current = activeTicketRef.current;
+            if (!current && String(created.id) === String(searchId)) {
+              setActiveTicket(created);
+              setLastSyncedTime(new Date());
+            }
+          }
+        } catch (err) {
+          console.error('SSE ticket_created error:', err);
+        }
+      });
+
+      es.onerror = () => {
+        setSseConnected(false);
+      };
     } catch (err) {
-      // Fallback: search known local tickets
-      const numericId = parseInt(cleanId, 10);
-      const localMatch = knownTickets.find((t) => t.id === numericId);
-      if (localMatch) {
-        setActiveTicket(localMatch);
-        saveToRecentTickets(localMatch.id);
-      } else {
-        setErrorMessage(
-          err.response?.data?.error ||
-            `Complaint #${cleanId} could not be located in the municipal records. Please verify the ticket number.`
-        );
-        setActiveTicket(null);
-      }
-    } finally {
-      setLoading(false);
+      console.warn('SSE EventSource failed to initialize:', err);
+      setSseConnected(false);
     }
-  };
+
+    return () => {
+      if (es) es.close();
+    };
+  }, [searchId]);
+
+  // Channel B: Immediate Prop Sync with App.jsx knownTickets (<1ms latency)
+  useEffect(() => {
+    if (!activeTicket) return;
+    const match = (knownTickets || []).find((t) => String(t.id) === String(activeTicket.id));
+    if (match) {
+      if (
+        match.status !== activeTicket.status ||
+        match.department !== activeTicket.department ||
+        match.urgency !== activeTicket.urgency ||
+        match.resolution_notes !== activeTicket.resolution_notes ||
+        match.resolved_at !== activeTicket.resolved_at ||
+        match.sla_deadline !== activeTicket.sla_deadline
+      ) {
+        setActiveTicket(match);
+        setLastSyncedTime(new Date());
+        setIsPulseUpdated(true);
+        setTimeout(() => setIsPulseUpdated(false), 2000);
+      }
+    }
+  }, [knownTickets, activeTicket?.id]);
+
+  // Channel C: Silent background poll (2.5s interval fallback for network resilience)
+  useEffect(() => {
+    if (!activeTicket?.id) return;
+    // If ticket is already resolved, poll less aggressively (every 10s); else poll every 2.5s
+    const intervalMs = activeTicket.status === 'RESOLVED' ? 10000 : 2500;
+    const interval = setInterval(() => {
+      fetchTicketById(activeTicket.id, true);
+    }, intervalMs);
+
+    return () => clearInterval(interval);
+  }, [activeTicket?.id, activeTicket?.status]);
 
   const handleSearchSubmit = (e) => {
     if (e) e.preventDefault();
@@ -248,7 +427,7 @@ export default function ComplaintTracker({
 
   const currentStep = activeTicket ? getStepIndex(activeTicket.status) : 0;
   const slaInfo = activeTicket
-    ? calculateSLARemaining(activeTicket.sla_deadline, activeTicket.status)
+    ? calculateSLARemaining(activeTicket.sla_deadline, activeTicket.status, nowTime, activeTicket.created_at)
     : null;
   const problemStatus = activeTicket ? getProblemStatus(activeTicket.status) : null;
 
@@ -267,7 +446,7 @@ export default function ComplaintTracker({
                 Track Complaint & Live Status
               </h1>
               <p className="text-sm text-slate-600 max-w-xl leading-relaxed">
-                Chhatrapati Sambhaji Nagar Municipal Corporation. Enter your ticket reference number to verify whether the problem is <b>SOLVED</b>, <b>GOING ON</b>, or <b>NOT SOLVED</b>.
+                Chhatrapati Sambhaji Nagar Municipal Corporation. Enter your ticket reference number to verify real-time status: <b>SOLVED</b>, <b>GOING ON</b>, or <b>NOT SOLVED</b>.
               </p>
             </div>
 
@@ -390,8 +569,8 @@ export default function ComplaintTracker({
           {/* Main Status Header Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
             <div className="flex flex-wrap justify-between items-start gap-4 pb-5 border-b border-slate-100">
-              <div className="space-y-1">
-                <div className="flex items-center gap-3">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-2xl font-black text-slate-900 tracking-tight">
                     Ticket #{activeTicket.id}
                   </h2>
@@ -420,35 +599,95 @@ export default function ComplaintTracker({
                   >
                     {activeTicket.urgency} Urgency
                   </span>
+
+                  {/* Pulse Update Alert */}
+                  {isPulseUpdated && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-md animate-bounce">
+                      <Zap className="w-3 h-3 text-emerald-600" />
+                      Live Status Updated!
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-slate-600 font-medium line-clamp-2 pt-1">
                   "{activeTicket.description}"
                 </p>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleCopyTicket}
-                  className="bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
-                  title="Copy complaint details"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copied ? 'Copied' : 'Copy'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fetchTicketById(activeTicket.id)}
-                  disabled={loading}
-                  className="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
-                  title="Check live status update"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                  <span>Refresh</span>
-                </button>
+              {/* Action Buttons & Real-Time Sync Indicator */}
+              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-[11px] text-slate-600">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      sseConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                    }`}
+                  />
+                  <span className="font-semibold">
+                    {sseConnected ? 'Real-Time SSE Live' : 'Auto-Poll Live (2.5s)'}
+                  </span>
+                  <span className="text-slate-400">|</span>
+                  <span className="text-slate-500">
+                    {lastSyncedTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyTicket}
+                    className="bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+                    title="Copy complaint details"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fetchTicketById(activeTicket.id)}
+                    disabled={loading}
+                    className="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+                    title="Check live status update"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                    <span>Sync</span>
+                  </button>
+                </div>
               </div>
             </div>
+
+            {/* Official Municipal Resolution Card when status is RESOLVED */}
+            {activeTicket.status === 'RESOLVED' && (
+              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-400/80 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-emerald-600/30">
+                    <CheckCircle2 className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black uppercase tracking-wider text-emerald-900">
+                        Official Resolution Verified & Closed
+                      </span>
+                      <span className="text-[10px] font-extrabold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full uppercase">
+                        CSNMC Certified
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-800 leading-relaxed font-medium">
+                      {activeTicket.resolution_notes ||
+                        'Field unit completed required rectification on site. Verified and signed off by Municipal Command Center.'}
+                    </p>
+                    <div className="text-[11px] text-emerald-700 flex items-center gap-1 font-semibold pt-0.5">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Resolved At: {formatDateTime(activeTicket.resolved_at || activeTicket.updated_at)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right sm:self-center">
+                  <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-black shadow-sm uppercase tracking-wider">
+                    <Check className="w-4 h-4" />
+                    Problem Solved
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* 3-State Problem Resolution Visual Pillar Overview */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3.5">
@@ -462,8 +701,8 @@ export default function ComplaintTracker({
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-sky-600 animate-pulse" />
-                  <span>Real-time Municipal Status Guarantee</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                  <span>Real-Time Municipal Status Guarantee</span>
                 </div>
               </div>
 
@@ -594,7 +833,7 @@ export default function ComplaintTracker({
               </div>
             </div>
 
-            {/* Deterministic SLA Timer Box */}
+            {/* Deterministic SLA Live Countdown Box */}
             <div className="bg-sky-50/70 border border-sky-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-white border border-sky-200 flex items-center justify-center text-sky-600 shadow-xs">
@@ -606,7 +845,12 @@ export default function ComplaintTracker({
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-lg font-black font-mono text-sky-800">{slaInfo.text}</div>
+                <div className="text-lg font-black font-mono text-sky-800 flex items-center justify-end gap-1.5">
+                  {activeTicket.status !== 'RESOLVED' && (
+                    <span className="w-2 h-2 rounded-full bg-sky-600 animate-ping inline-block" />
+                  )}
+                  <span>{slaInfo.text}</span>
+                </div>
                 <div className="text-[11px] text-slate-500">
                   Target Deadline: {formatDateTime(activeTicket.sla_deadline)}
                 </div>

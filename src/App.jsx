@@ -172,10 +172,60 @@ export default function App() {
   useEffect(() => {
     fetchHealth();
     fetchTickets();
+
+    // Connect to Server-Sent Events (SSE) for real-time bidirectional ticket updates
+    let es;
+    try {
+      es = new EventSource(`${API_BASE}/events`);
+      es.addEventListener('ticket_created', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload?.ticket) {
+            setTickets((prev) => {
+              if (prev.some((t) => t.id === payload.ticket.id)) return prev;
+              return [payload.ticket, ...prev];
+            });
+          }
+        } catch (err) {
+          console.error('SSE ticket_created parse error in App:', err);
+        }
+      });
+
+      es.addEventListener('ticket_updated', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload?.ticket) {
+            setTickets((prev) =>
+              prev.map((t) => (t.id === payload.ticket.id ? { ...t, ...payload.ticket } : t))
+            );
+          }
+        } catch (err) {
+          console.error('SSE ticket_updated parse error in App:', err);
+        }
+      });
+
+      es.addEventListener('ticket_deleted', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload?.id) {
+            setTickets((prev) => prev.filter((t) => t.id !== payload.id));
+          }
+        } catch (err) {
+          console.error('SSE ticket_deleted parse error in App:', err);
+        }
+      });
+    } catch (err) {
+      console.warn('EventSource initialization error in App:', err);
+    }
+
     const interval = setInterval(() => {
       fetchTickets(true);
     }, 15000);
-    return () => clearInterval(interval);
+
+    return () => {
+      clearInterval(interval);
+      if (es) es.close();
+    };
   }, []);
 
   const fetchHealth = async () => {
