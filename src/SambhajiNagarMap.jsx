@@ -50,9 +50,6 @@ function SambhajiNagarMapComponent({
         maxZoom: 18,
         zoomSnap: 1,
         zoomDelta: 1,
-        zoomAnimation: false,       // Disables Chromium 3D transform flash/blink on zoom
-        fadeAnimation: false,       // Disables tile opacity blink
-        markerZoomAnimation: false, // Keeps pins steady during zoom
         scrollWheelZoom: true,
         zoomControl: false,
         preferCanvas: true
@@ -70,14 +67,12 @@ function SambhajiNagarMapComponent({
         }
       });
 
-      // High-performance OpenStreetMap layer with deep tile cache
+      // High-performance OpenStreetMap layer with subdomains
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 18,
-        minZoom: 10,
-        keepBuffer: 16,             // Keeps 16 tiles in memory to prevent blank areas on zoom
-        updateWhenZooming: false,   // Eliminates tile churn during zoom
-        updateWhenIdle: true
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+        minZoom: 9,
+        subdomains: ['a', 'b', 'c']
       }).addTo(map);
 
       // Separate layers for static wards and dynamic tickets
@@ -159,16 +154,30 @@ function SambhajiNagarMapComponent({
         };
       }
 
-      // Initial dimension settle
-      const timer = setTimeout(() => {
+      // Staggered dimension settle to guarantee tiles load when DOM is painted
+      const timer1 = setTimeout(() => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.invalidateSize({ pan: false });
         }
-      }, 200);
+      }, 50);
+
+      const timer2 = setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize({ pan: false });
+        }
+      }, 250);
+
+      const timer3 = setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize({ pan: false });
+        }
+      }, 600);
 
       // Single proper cleanup
       return () => {
-        clearTimeout(timer);
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+        clearTimeout(timer3);
         if (mapInstanceRef.current) {
           mapInstanceRef.current.remove();
           mapInstanceRef.current = null;
@@ -253,7 +262,7 @@ function SambhajiNagarMapComponent({
       if (w) {
         persistentCenter = [w.lat, w.lng];
         persistentZoom = 15;
-        mapInstanceRef.current.setView([w.lat, w.lng], 15, { animate: false });
+        mapInstanceRef.current.setView([w.lat, w.lng], 15, { animate: true });
       }
     }
   }, [selectedWard]);
@@ -291,7 +300,7 @@ function SambhajiNagarMapComponent({
     if (w && mapInstanceRef.current) {
       persistentCenter = [w.lat, w.lng];
       persistentZoom = 15;
-      mapInstanceRef.current.setView([w.lat, w.lng], 15, { animate: false });
+      mapInstanceRef.current.setView([w.lat, w.lng], 15, { animate: true });
       if (onSelectWardRef.current) {
         onSelectWardRef.current(w.name);
       }
@@ -302,7 +311,7 @@ function SambhajiNagarMapComponent({
     persistentCenter = [19.8762, 75.3433];
     persistentZoom = 13;
     if (mapInstanceRef.current) {
-      mapInstanceRef.current.setView([19.8762, 75.3433], 13, { animate: false });
+      mapInstanceRef.current.setView([19.8762, 75.3433], 13, { animate: true });
     }
     if (onSelectWardRef.current) {
       onSelectWardRef.current(null);
@@ -383,8 +392,8 @@ function SambhajiNagarMapComponent({
       {/* Leaflet Map Target DOM with explicit height */}
       <div
         ref={mapContainerRef}
-        className="w-full h-full flex-1"
-        style={{ width: '100%', height: '100%' }}
+        className="w-full flex-1 min-h-0"
+        style={{ width: '100%', minHeight: '340px' }}
       />
 
       {/* Bottom Status Legend */}

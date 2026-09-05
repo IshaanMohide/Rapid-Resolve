@@ -281,23 +281,10 @@ html, body {
   background: #f1f5f9 !important;
 }
 
-/* Critical Anti-Flicker & Anti-Blink Leaflet Rules */
+/* Critical Leaflet Rules to prevent Tailwind image distortion */
 .leaflet-container img {
   max-width: none !important;
   max-height: none !important;
-  image-rendering: auto;
-}
-
-.leaflet-tile {
-  visibility: inherit !important;
-}
-
-.leaflet-tile-container {
-  contain: layout paint;
-}
-
-.leaflet-zoom-animated {
-  will-change: auto !important;
 }
 
 .leaflet-popup-content-wrapper {
