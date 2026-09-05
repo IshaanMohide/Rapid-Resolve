@@ -32,160 +32,183 @@ function SambhajiNagarMapComponent({
   const onSelectWardRef = useRef(onSelectWard);
   onSelectWardRef.current = onSelectWard;
 
-  // 1. Initialize Leaflet Map ONCE on mount with anti-flicker & persistent settings
+  // 1. Initialize Leaflet Map ONCE on mount with layout settle
   useEffect(() => {
-    if (!mapContainerRef.current) return;
-    if (mapInstanceRef.current) return;
+    let timer1 = null;
+    let timer2 = null;
+    let timer3 = null;
 
-    try {
-      // Clean up any residual leaflet DOM ID before initialization
-      if (mapContainerRef.current._leaflet_id) {
-        delete mapContainerRef.current._leaflet_id;
-      }
+    const initTimer = setTimeout(() => {
+      if (!mapContainerRef.current) return;
+      if (mapInstanceRef.current) return;
 
-      const map = L.map(mapContainerRef.current, {
-        center: persistentCenter,
-        zoom: persistentZoom,
-        minZoom: 10,
-        maxZoom: 18,
-        zoomSnap: 1,
-        zoomDelta: 1,
-        scrollWheelZoom: true,
-        zoomControl: false,
-        preferCanvas: true
-      });
-      mapInstanceRef.current = map;
-
-      // Track pan and zoom so user position is NEVER lost or reset
-      map.on('moveend zoomend', () => {
-        try {
-          const c = map.getCenter();
-          persistentCenter = [c.lat, c.lng];
-          persistentZoom = map.getZoom();
-        } catch {
-          // ignore
+      try {
+        if (mapContainerRef.current._leaflet_id) {
+          delete mapContainerRef.current._leaflet_id;
         }
-      });
 
-      // High-performance OpenStreetMap layer with subdomains
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
-        minZoom: 9,
-        subdomains: ['a', 'b', 'c']
-      }).addTo(map);
+        const validCenter = (
+          Array.isArray(persistentCenter) &&
+          persistentCenter.length === 2 &&
+          !isNaN(persistentCenter[0]) &&
+          !isNaN(persistentCenter[1])
+        ) ? persistentCenter : [19.8762, 75.3433];
 
-      // Separate layers for static wards and dynamic tickets
-      const wardLayer = L.layerGroup().addTo(map);
-      const ticketLayer = L.layerGroup().addTo(map);
-      wardLayerRef.current = wardLayer;
-      ticketLayerRef.current = ticketLayer;
+        const validZoom = (typeof persistentZoom === 'number' && !isNaN(persistentZoom) && persistentZoom >= 10 && persistentZoom <= 18) ? persistentZoom : 13;
 
-      // Render Static Ward Markers (Clean, Steady SVG, No Blinking)
-      SAMBHAJI_NAGAR_WARDS.forEach((w) => {
-        const isCritical = w.status === 'Critical';
-        const color = isCritical ? '#e11d48' : '#0284c7';
-
-        const wardIcon = L.divIcon({
-          className: 'csn-ward-pin',
-          html: `
-            <div style="
-              position: relative;
-              width: 24px;
-              height: 24px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              cursor: pointer;
-            ">
-              <div style="
-                position: absolute;
-                inset: 0;
-                background: ${color};
-                opacity: 0.2;
-                border-radius: 50%;
-              "></div>
-              <div style="
-                width: 12px;
-                height: 12px;
-                background: ${color};
-                border: 2px solid #ffffff;
-                border-radius: 50%;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.25);
-              "></div>
-            </div>
-          `,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12]
+        const map = L.map(mapContainerRef.current, {
+          center: validCenter,
+          zoom: validZoom,
+          minZoom: 10,
+          maxZoom: 18,
+          zoomSnap: 1,
+          zoomDelta: 1,
+          scrollWheelZoom: true,
+          zoomControl: false,
+          preferCanvas: true
         });
+        mapInstanceRef.current = map;
 
-        const marker = L.marker([w.lat, w.lng], { icon: wardIcon }).addTo(wardLayer);
-
-        const popupContent = `
-          <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 190px; color: #0f172a;">
-            <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 2px;">
-              ${w.name}
-            </div>
-            <div style="font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 6px;">
-              ${w.type}
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
-              <span style="color: #475569;">Active Reports:</span>
-              <span style="font-weight: 800; color: ${isCritical ? '#e11d48' : '#0284c7'};">
-                ${w.alerts} cases
-              </span>
-            </div>
-          </div>
-        `;
-        marker.bindPopup(popupContent);
-
-        marker.on('click', () => {
-          if (onSelectWardRef.current) {
-            onSelectWardRef.current(w.name);
+        // Track pan and zoom so user position is NEVER lost or reset
+        map.on('moveend zoomend', () => {
+          try {
+            const c = map.getCenter();
+            if (c && typeof c.lat === 'number' && !isNaN(c.lat) && typeof c.lng === 'number' && !isNaN(c.lng)) {
+              persistentCenter = [c.lat, c.lng];
+            }
+            const z = map.getZoom();
+            if (typeof z === 'number' && !isNaN(z) && z >= 10 && z <= 18) {
+              persistentZoom = z;
+            }
+          } catch {
+            // ignore
           }
         });
-      });
 
-      // Record initial container dimensions
-      if (mapContainerRef.current) {
-        lastDimensionsRef.current = {
-          width: mapContainerRef.current.clientWidth,
-          height: mapContainerRef.current.clientHeight
-        };
+        // High-performance OpenStreetMap layer with fallback (100% free, no watermark)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          maxZoom: 19,
+          minZoom: 9,
+          subdomains: ['a', 'b', 'c'],
+          errorTileUrl: 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png'
+        }).addTo(map);
+
+        // Separate layers for static wards and dynamic tickets
+        const wardLayer = L.layerGroup().addTo(map);
+        const ticketLayer = L.layerGroup().addTo(map);
+        wardLayerRef.current = wardLayer;
+        ticketLayerRef.current = ticketLayer;
+
+        // Render Static Ward Markers (Clean, Steady SVG, No Blinking)
+        SAMBHAJI_NAGAR_WARDS.forEach((w) => {
+          const isCritical = w.status === 'Critical';
+          const color = isCritical ? '#e11d48' : '#0284c7';
+
+          const wardIcon = L.divIcon({
+            className: 'csn-ward-pin',
+            html: `
+              <div style="
+                position: relative;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+              ">
+                <div style="
+                  position: absolute;
+                  inset: 0;
+                  background: ${color};
+                  opacity: 0.2;
+                  border-radius: 50%;
+                "></div>
+                <div style="
+                  width: 12px;
+                  height: 12px;
+                  background: ${color};
+                  border: 2px solid #ffffff;
+                  border-radius: 50%;
+                  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+                "></div>
+              </div>
+            `,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+          });
+
+          const marker = L.marker([w.lat, w.lng], { icon: wardIcon }).addTo(wardLayer);
+
+          const popupContent = `
+            <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 190px; color: #0f172a;">
+              <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 2px;">
+                ${w.name}
+              </div>
+              <div style="font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 6px;">
+                ${w.type}
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
+                <span style="color: #475569;">Active Reports:</span>
+                <span style="font-weight: 800; color: ${isCritical ? '#e11d48' : '#0284c7'};">
+                  ${w.alerts} cases
+                </span>
+              </div>
+            </div>
+          `;
+          marker.bindPopup(popupContent);
+
+          marker.on('click', () => {
+            if (onSelectWardRef.current) {
+              onSelectWardRef.current(w.name);
+            }
+          });
+        });
+
+        // Record initial container dimensions
+        if (mapContainerRef.current) {
+          lastDimensionsRef.current = {
+            width: mapContainerRef.current.clientWidth,
+            height: mapContainerRef.current.clientHeight
+          };
+        }
+
+        // Staggered dimension settle to guarantee tiles load when DOM is painted
+        map.invalidateSize({ pan: false });
+
+        timer1 = setTimeout(() => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.invalidateSize({ pan: false });
+          }
+        }, 150);
+
+        timer2 = setTimeout(() => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.invalidateSize({ pan: false });
+          }
+        }, 400);
+
+        timer3 = setTimeout(() => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.invalidateSize({ pan: false });
+          }
+        }, 800);
+      } catch (err) {
+        console.error('Failed to initialize Leaflet Map:', err);
       }
+    }, 100);
 
-      // Staggered dimension settle to guarantee tiles load when DOM is painted
-      const timer1 = setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize({ pan: false });
-        }
-      }, 50);
-
-      const timer2 = setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize({ pan: false });
-        }
-      }, 250);
-
-      const timer3 = setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize({ pan: false });
-        }
-      }, 600);
-
-      // Single proper cleanup
-      return () => {
-        clearTimeout(timer1);
-        clearTimeout(timer2);
-        clearTimeout(timer3);
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.remove();
-          mapInstanceRef.current = null;
-        }
-      };
-    } catch (err) {
-      console.error('Failed to initialize Leaflet Map:', err);
-    }
+    // Single proper cleanup
+    return () => {
+      clearTimeout(initTimer);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
   }, []);
 
   // 2. Update Incident Pins in-place without touching tiles or map center
@@ -336,7 +359,7 @@ function SambhajiNagarMapComponent({
       style={{ height: '420px', minHeight: '380px' }}
     >
       {/* Top Left Title Overlay (Steady Indicator) */}
-      <div className="absolute top-3 left-3 z-[400] bg-white/95 backdrop-blur-md border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm pointer-events-auto">
+      <div className="absolute top-3 left-3 z-[1000] bg-white/95 backdrop-blur-md border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm pointer-events-auto">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-200" />
           <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
@@ -349,7 +372,7 @@ function SambhajiNagarMapComponent({
       </div>
 
       {/* Top Right Ward Quick Selector Chips */}
-      <div className="absolute top-3 right-3 z-[400] flex flex-wrap gap-1.5 max-w-xs sm:max-w-md justify-end pointer-events-auto">
+      <div className="absolute top-3 right-3 z-[1000] flex flex-wrap gap-1.5 max-w-xs sm:max-w-md justify-end pointer-events-auto">
         {['Kranti Chowk', 'CIDCO', 'Waluj', 'Garkheda'].map((wName) => (
           <button
             key={wName}
@@ -370,7 +393,7 @@ function SambhajiNagarMapComponent({
       </div>
 
       {/* Custom Zoom Buttons */}
-      <div className="absolute bottom-12 right-3 z-[400] flex flex-col gap-1 pointer-events-auto">
+      <div className="absolute bottom-12 right-3 z-[500] flex flex-col gap-1 pointer-events-auto">
         <button
           type="button"
           onClick={handleZoomIn}
@@ -389,15 +412,17 @@ function SambhajiNagarMapComponent({
         </button>
       </div>
 
-      {/* Leaflet Map Target DOM with explicit height */}
-      <div
-        ref={mapContainerRef}
-        className="w-full flex-1 min-h-0"
-        style={{ width: '100%', minHeight: '340px' }}
-      />
+      {/* Leaflet Map Target DOM with absolute fill */}
+      <div className="relative w-full flex-1" style={{ minHeight: '350px' }}>
+        <div
+          ref={mapContainerRef}
+          className="absolute inset-0 w-full h-full"
+          style={{ zIndex: 1 }}
+        />
+      </div>
 
       {/* Bottom Status Legend */}
-      <div className="bg-white border-t border-slate-200 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 z-10">
+      <div className="relative bg-white border-t border-slate-200 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 z-[10]">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
@@ -413,7 +438,7 @@ function SambhajiNagarMapComponent({
           </span>
         </div>
         <div className="font-mono text-[11px] text-slate-500 hidden sm:block">
-          OpenStreetMap · CSNMC Municipal Spatial Server
+          CSNMC Municipal Spatial Server · CartoDB & OSM
         </div>
       </div>
     </div>

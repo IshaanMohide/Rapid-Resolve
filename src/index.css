@@ -277,7 +277,7 @@ html, body {
 .leaflet-container {
   font-family: 'Inter', system-ui, sans-serif !important;
   border-radius: 8px;
-  z-index: 10 !important;
+  z-index: 1 !important;
   background: #f1f5f9 !important;
 }
 
