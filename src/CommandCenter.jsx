@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as echarts from 'echarts';
 import {
   ShieldAlert,
@@ -134,10 +134,12 @@ export default function CommandCenter({
 
     // 1. Civic Category Donut Chart
     if (categoryChartRef.current) {
-      if (!chartInstances.current.category) {
-        chartInstances.current.category = echarts.init(categoryChartRef.current);
+      let chart = echarts.getInstanceByDom(categoryChartRef.current);
+      if (!chart) {
+        chart = echarts.init(categoryChartRef.current);
       }
-      chartInstances.current.category.setOption({
+      chartInstances.current.category = chart;
+      chart.setOption({
         animation: true,
         tooltip: {
           trigger: 'item',
@@ -164,10 +166,12 @@ export default function CommandCenter({
 
     // 2. Weekly Resolution Velocity Line/Bar Chart
     if (velocityChartRef.current) {
-      if (!chartInstances.current.velocity) {
-        chartInstances.current.velocity = echarts.init(velocityChartRef.current);
+      let chart = echarts.getInstanceByDom(velocityChartRef.current);
+      if (!chart) {
+        chart = echarts.init(velocityChartRef.current);
       }
-      chartInstances.current.velocity.setOption({
+      chartInstances.current.velocity = chart;
+      chart.setOption({
         animation: true,
         tooltip: {
           trigger: 'axis',
@@ -216,10 +220,12 @@ export default function CommandCenter({
 
     // 3. Department Turnaround Velocity (Bar Chart)
     if (turnaroundChartRef.current) {
-      if (!chartInstances.current.turnaround) {
-        chartInstances.current.turnaround = echarts.init(turnaroundChartRef.current);
+      let chart = echarts.getInstanceByDom(turnaroundChartRef.current);
+      if (!chart) {
+        chart = echarts.init(turnaroundChartRef.current);
       }
-      chartInstances.current.turnaround.setOption({
+      chartInstances.current.turnaround = chart;
+      chart.setOption({
         animation: true,
         grid: { left: 8, right: 36, top: 6, bottom: 6, containLabel: true },
         xAxis: { type: 'value', axisLine: { show: false }, splitLine: { show: false }, axisLabel: { show: false } },
@@ -249,7 +255,17 @@ export default function CommandCenter({
       Object.values(chartInstances.current).forEach(c => c && c.resize());
     };
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      Object.values(chartInstances.current).forEach(c => {
+        try {
+          if (c && !c.isDisposed()) c.dispose();
+        } catch {
+          // ignore
+        }
+      });
+      chartInstances.current = {};
+    };
   }, [isAdminAuthenticated]);
 
   // Filtered tickets in Admin Queue
