@@ -97,11 +97,12 @@ export default function App() {
       });
 
       const t = res.data?.ticket;
+      const probStatus = t.status === 'RESOLVED' ? 'SOLVED' : (t.status === 'IN_PROGRESS' || t.status === 'DISPATCHED') ? 'GOING ON' : 'NOT SOLVED';
       setMessages((prev) => [
         ...prev,
         {
           sender: 'bot',
-          text: `Ticket #${t.id} created!\nCategory: ${t.category}\nUrgency: ${t.urgency}\nRouting: ${t.department}\nSLA: ${formatSLATime(t.sla_deadline)}`
+          text: `Ticket #${t.id} created!\nProblem Status: ${probStatus}\nCategory: ${t.category}\nUrgency: ${t.urgency}\nRouting: ${t.department}\nSLA: ${formatSLATime(t.sla_deadline)}`
         }
       ]);
       await fetchTickets();
@@ -110,7 +111,7 @@ export default function App() {
         ...prev,
         {
           sender: 'bot',
-          text: 'Urgency: HIGH. Routing now... Ticket #4821 created. SLA: 2 hrs.'
+          text: 'Urgency: HIGH. Problem Status: NOT SOLVED (Queued). Routing now... Ticket #4821 created. SLA: 2 hrs.'
         }
       ]);
     } finally {

@@ -148,27 +148,48 @@ app.get('/api/tickets', async (req, res) => {
   }
 });
 
-// PATCH: Human-in-the-loop override queue (Deletes problem if status is RESOLVED)
+// GET: Single Ticket by ID (Citizen Complaint Tracking)
+app.get('/api/tickets/:id', async (req, res) => {
+  const { id } = req.params;
+  const cleanId = String(id).replace(/^#/, '').trim();
+  const numericId = parseInt(cleanId, 10);
+
+  if (isNaN(numericId)) {
+    return res.status(400).json({ success: false, error: 'Invalid Ticket ID format' });
+  }
+
+  try {
+    const result = await db.query('SELECT * FROM tickets WHERE id = $1', [numericId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: `Complaint #${numericId} not found` });
+    }
+    res.json({ success: true, ticket: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH: Human-in-the-loop override queue (Retains verified resolved tickets)
 app.patch('/api/tickets/:id/override', async (req, res) => {
   const { id } = req.params;
-  const { urgency, department, status } = req.body;
-  try {
-    if (status === 'RESOLVED') {
-      const delRes = await db.query('DELETE FROM tickets WHERE id = $1 RETURNING *', [id]);
-      if (delRes.rows.length === 0) {
-        return res.status(404).json({ error: 'Ticket not found' });
-      }
-      return res.json({ success: true, deleted: true, id: Number(id), message: 'Ticket resolved and deleted' });
-    }
+  const cleanId = String(id).replace(/^#/, '').trim();
+  const numericId = parseInt(cleanId, 10);
+  const { urgency, department, status, resolution_notes } = req.body;
 
+  try {
     const updated = await db.query(
       `UPDATE tickets 
        SET urgency = COALESCE($1, urgency),
            department = COALESCE($2, department),
-           status = COALESCE($3, status)
-       WHERE id = $4 RETURNING *`,
-      [urgency, department, status, id]
+           status = COALESCE($3, status),
+           resolved_at = CASE WHEN $3 = 'RESOLVED' THEN NOW() ELSE resolved_at END,
+           resolution_notes = COALESCE($4, resolution_notes)
+       WHERE id = $5 RETURNING *`,
+      [urgency, department, status, resolution_notes, numericId]
     );
+    if (updated.rows.length === 0) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
     res.json(updated.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
