@@ -1,329 +1,196 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
-import { Sun, Moon, ArrowLeft, Radio, Clock, ShieldCheck, Activity } from 'lucide-react';
-import InteractiveGlobe from './InteractiveGlobe';
+import {
+  ShieldAlert,
+  Radio,
+  Clock,
+  MapPin,
+  CheckCircle2,
+  AlertTriangle,
+  Flame,
+  Activity,
+  Zap,
+  TrendingUp,
+  RefreshCw,
+  Search,
+  Truck,
+  Users
+} from 'lucide-react';
+import SambhajiNagarMap from './SambhajiNagarMap';
 
-// Core Dataset from Reference System
-const REGIONS = [
-  { n: "East Region", v: 342e6, q: 32e7, hub: "Shanghai" },
-  { n: "South Region", v: 286e6, q: 29e7, hub: "Shenzhen" },
-  { n: "North Region", v: 231e6, q: 21e7, hub: "Beijing" },
-  { n: "West Region", v: 174e6, q: 195e6, hub: "Chengdu" },
-  { n: "Central Region", v: 152e6, q: 14e7, hub: "Wuhan" },
-  { n: "Northeast Region", v: 96e6, q: 12e7, hub: "Shenyang" },
-  { n: "Northwest Region", v: 78e6, q: 7e7, hub: "Xi'an" }
+// Sambhaji Nagar Ward Performance Data
+const WARDS_PERFORMANCE = [
+  { name: "CIDCO Wards (N-1 to N-12)", total: 342, resolved: 318, target: 320, leader: "Ward Officer Patil", hub: "CIDCO Wards (N-1 to N-12)" },
+  { name: "Kranti Chowk Central", total: 286, resolved: 274, target: 270, leader: "Ward Officer Shinde", hub: "Kranti Chowk Central" },
+  { name: "Waluj Industrial Zone", total: 231, resolved: 218, target: 210, leader: "MIDC Liaison More", hub: "Waluj MIDC Industrial Sector" },
+  { name: "Garkheda & Sutgirni", total: 174, resolved: 165, target: 160, leader: "Ward Officer Kulkarni", hub: "Garkheda & Sutgirni" },
+  { name: "Chikalthana / Airport Road", total: 152, resolved: 144, target: 140, leader: "Ward Officer Deshmukh", hub: "Chikalthana / Airport Road" },
+  { name: "HUDCO & TV Centre", total: 96, resolved: 88, target: 90, leader: "Water Dept Incharge", hub: "TV Centre / HUDCO" },
+  { name: "Begumpura / University", total: 78, resolved: 74, target: 75, leader: "Civic Health Officer", hub: "Begumpura / University Zone" }
 ];
 
-const REGIONAL_CITIES = {
-  "East Region": [
-    { n: "Shanghai", v: 165e6, q: 15e7, hub: "Shanghai" },
-    { n: "Hangzhou", v: 78e6, q: 72e6, hub: "Hangzhou" },
-    { n: "Nanjing", v: 54e6, q: 50e6, hub: "Nanjing" },
-    { n: "Suzhou", v: 45e6, q: 48e6, hub: "Suzhou" }
-  ],
-  "South Region": [
-    { n: "Shenzhen", v: 148e6, q: 15e7, hub: "Shenzhen" },
-    { n: "Guangzhou", v: 82e6, q: 85e6, hub: "Guangzhou" },
-    { n: "Hong Kong", v: 56e6, q: 55e6, hub: "Hong Kong" }
-  ],
-  "North Region": [
-    { n: "Beijing", v: 168e6, q: 15e7, hub: "Beijing" },
-    { n: "Tianjin", v: 63e6, q: 60e6, hub: "Tianjin" }
-  ],
-  "West Region": [
-    { n: "Chengdu", v: 92e6, q: 10e7, hub: "Chengdu" },
-    { n: "Chongqing", v: 54e6, q: 60e6, hub: "Chongqing" },
-    { n: "Kunming", v: 28e6, q: 35e6, hub: "Kunming" }
-  ],
-  "Central Region": [
-    { n: "Wuhan", v: 98e6, q: 90e6, hub: "Wuhan" },
-    { n: "Changsha", v: 54e6, q: 50e6, hub: "Changsha" }
-  ],
-  "Northeast Region": [
-    { n: "Shenyang", v: 58e6, q: 70e6, hub: "Shenyang" },
-    { n: "Harbin", v: 38e6, q: 50e6, hub: "Harbin" }
-  ],
-  "Northwest Region": [
-    { n: "Xi'an", v: 78e6, q: 70e6, hub: "Xi'an" }
-  ]
-};
-
-const CATEGORY_MIX = [
-  { n: "Smart devices", v: 512e6 },
-  { n: "Cloud services", v: 344e6 },
-  { n: "Industrial modules", v: 268e6 },
-  { n: "Accessories", v: 152e6 },
-  { n: "Technical services", v: 83e6 }
+// Municipal Category Mix in Chhatrapati Sambhaji Nagar
+const CIVIC_CATEGORIES = [
+  { name: "Water Supply & Drainage", value: 384 },
+  { name: "Roads & Pothole Repair", value: 292 },
+  { name: "Electrical & Streetlights", value: 210 },
+  { name: "Solid Waste & Sanitation", value: 168 },
+  { name: "Public Health & Safety", value: 94 }
 ];
 
-const ROUTES = [
-  { from: "Shanghai", to: "Rotterdam", v: 8.42, d: -1.2 },
-  { from: "Shenzhen", to: "Los Angeles", v: 7.16, d: 3.4 },
-  { from: "Shanghai", to: "New York", v: 6.38, d: 1.1 },
-  { from: "Guangzhou", to: "Dubai", v: 4.92, d: 5.2 },
-  { from: "Beijing", to: "Frankfurt", v: 4.35, d: -0.6 },
-  { from: "Shenzhen", to: "Singapore", v: 3.88, d: 2.8 },
-  { from: "Chengdu", to: "Moscow", v: 2.64, d: -4.1, level: "warn" },
-  { from: "Hong Kong", to: "London", v: 2.41, d: 0.9 },
-  { from: "Xi'an", to: "Amsterdam", v: 1.96, d: 7.3 },
-  { from: "Shanghai", to: "Sydney", v: 1.72, d: -2.2 }
+// Active Patrol and Field Units in Chhatrapati Sambhaji Nagar
+const FIELD_UNITS = [
+  { id: "QRT-01", unit: "Rapid Response Unit 01", location: "Kranti Chowk Flyover", task: "Water Pipeline Breach Isolation", status: "ON SITE", type: "urgent" },
+  { id: "TNK-04", unit: "Municipal Water Tanker 04", location: "CIDCO N-4 Sector", task: "Emergency Supply Deployment", status: "EN ROUTE", type: "active" },
+  { id: "PWD-02", unit: "PWD Asphalt Crew 02", location: "Jalna Road / Prozone", task: "Pothole Deep Patchwork", status: "IN PROGRESS", type: "active" },
+  { id: "MSD-07", unit: "MSEDCL Electrical Squad", location: "Waluj MIDC Phase 2", task: "Substation Transformer Overhaul", status: "ON SITE", type: "active" },
+  { id: "SAN-11", unit: "Sanitation Rapid Sweeper", location: "Garkheda Stadium Area", task: "Commercial Debris Clearance", status: "COMPLETED", type: "solved" },
+  { id: "FIR-03", unit: "Padampura Fire Tender 03", location: "Railway Station Road", task: "Hazardous Tree Fall Clearance", status: "STANDBY", type: "standby" }
 ];
 
-const HUBS = [
-  { city: "Shanghai", v: 96 },
-  { city: "Shenzhen", v: 88 },
-  { city: "Beijing", v: 74 },
-  { city: "Guangzhou", v: 66 },
-  { city: "Hong Kong", v: 58 },
-  { city: "Singapore", v: 62 },
-  { city: "Frankfurt", v: 54 },
-  { city: "Rotterdam", v: 51 },
-  { city: "New York", v: 70 },
-  { city: "Los Angeles", v: 64 },
-  { city: "Dubai", v: 47 },
-  { city: "Moscow", v: 28, level: "warn" },
-  { city: "London", v: 44 },
-  { city: "Sydney", v: 31 },
-  { city: "Chengdu", v: 36 },
-  { city: "Xi'an", v: 24 },
-  { city: "Amsterdam", v: 39 }
+// Real-Time Municipal Alerts in Chhatrapati Sambhaji Nagar
+const SAMBHAJI_NAGAR_ALERTS = [
+  { time: "11:52 AM", desc: "CIDCO N-7: 300mm distribution pipe leak contained by Ward Emergency Squad", level: "MED", dept: "Water Works" },
+  { time: "11:40 AM", desc: "Kranti Chowk: Traffic signal grid restored following brief voltage surge", level: "LOW", dept: "Electrical" },
+  { time: "11:28 AM", desc: "Waluj MIDC Sector B: High tension line insulator inspection underway", level: "HIGH", dept: "MSEDCL" },
+  { time: "11:15 AM", desc: "Jalna Road Flyover: Asphalt repair machinery deployed; single lane regulated", level: "MED", dept: "PWD Infrastructure" },
+  { time: "10:55 AM", desc: "Begumpura: Drainage desilting completed near University junction", level: "LOW", dept: "Sanitation" },
+  { time: "10:30 AM", desc: "TV Centre Reservoir: Inflow telemetry calibrated to 100% capacity", level: "LOW", dept: "Water Supply" },
+  { time: "10:12 AM", desc: "Garkheda Sutgirni Chowk: Solid waste collection cycle 2 concluded", level: "LOW", dept: "Health Dept" },
+  { time: "09:45 AM", desc: "Padampura Station Road: Emergency clearance protocol executed in 18 mins", level: "HIGH", dept: "Fire & Rescue" }
 ];
-
-const ALERTS = [
-  ["09:42", "West Region attainment at 89.2%, below threshold for 3 months", "a"],
-  ["09:31", "Chengdu–Moscow route volume down 4.1%; customs delay", "a"],
-  ["09:18", "Northstar Labs receivable $2.4M overdue by 63 days", "a"],
-  ["08:56", "Shenzhen store sets annual daily sales record of $842K", "b"],
-  ["08:44", "Cloud services gross margin down 2.1pp month over month", "b"],
-  ["08:20", "Three Northeast stores have not submitted daily reports", "b"],
-  ["07:58", "Industrial module A2 returns reach 4.8%, above threshold", "a"],
-  ["07:31", "Group operating cash flow turns positive, up 28.2%", "b"]
-];
-
-const TOUR_STEPS = [
-  { level: 0, region: null, city: null, hub: "Shanghai" },
-  { level: 1, region: "East Region", city: null, hub: "Shanghai" },
-  { level: 2, region: "East Region", city: "Shanghai", hub: "Shanghai" },
-  { level: 1, region: "South Region", city: null, hub: "Shenzhen" },
-  { level: 2, region: "South Region", city: "Shenzhen", hub: "Shenzhen" },
-  { level: 1, region: "North Region", city: null, hub: "Beijing" },
-  { level: 0, region: null, city: null, hub: "Rotterdam" }
-];
-
-const formatVal = (val) => (val / 1e8).toFixed(2);
 
 export default function CommandCenter({
   activeTab = 'command',
   onTabChange = () => {}
 }) {
-  const stageRef = useRef(null);
-  const mixChartRef = useRef(null);
-  const turnChartRef = useRef(null);
-  const trendChartRef = useRef(null);
-  const cashChartRef = useRef(null);
+  const categoryChartRef = useRef(null);
+  const velocityChartRef = useRef(null);
+  const turnaroundChartRef = useRef(null);
+  const resourceChartRef = useRef(null);
   const chartInstances = useRef({});
 
-  // Navigation & Drilldown State
-  const [level, setLevel] = useState(0); // 0: Group, 1: Region, 2: City
-  const [selectedRegion, setSelectedRegion] = useState(null);
-  const [selectedCity, setSelectedCity] = useState(null);
-  const [selectedRouteIdx, setSelectedRouteIdx] = useState(-1);
-  const [selectedHubData, setSelectedHubData] = useState(null);
-  const [routeHint, setRouteHint] = useState("Click to locate");
-
-  // Real-time Clock
+  // Clock state
   const [clockTime, setClockTime] = useState({ t: '', d: '' });
-  const [isLive, setIsLive] = useState(true);
+  const [selectedWard, setSelectedWard] = useState(null);
 
-  // Auto Tour
-  const [tourIdx, setTourIdx] = useState(0);
-  const [isTourPaused, setIsTourPaused] = useState(false);
-
-  // Theme State
-  const [theme, setTheme] = useState('dark');
-
-  // Toggle Theme
-  const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    document.documentElement.setAttribute('data-theme', nextTheme);
-  };
-
-  // Synchronize CSS tokens helper
-  const getCssVar = useCallback((name) => {
-    if (typeof window === 'undefined') return '#49b3ff';
-    return getComputedStyle(document.body).getPropertyValue(name).trim() || '#49b3ff';
-  }, []);
-
-  // Clock Ticker
+  // Digital Clock updates
   useEffect(() => {
     const updateClock = () => {
       const now = new Date();
       setClockTime({
-        t: now.toTimeString().slice(0, 8),
+        t: now.toLocaleTimeString('en-US', { hour12: true }),
         d: now.toLocaleDateString('en-US', {
-          year: 'numeric',
+          weekday: 'short',
           month: 'short',
           day: '2-digit',
-          weekday: 'short'
+          year: 'numeric'
         })
       });
     };
     updateClock();
-    const interval = setInterval(updateClock, 1000);
-    return () => clearInterval(interval);
+    const timer = setInterval(updateClock, 1000);
+    return () => clearInterval(timer);
   }, []);
 
-  // Responsive Auto-Scaler: Scales 1920x1080 stage to fill viewport smoothly
+  // ECharts Initializations
   useEffect(() => {
-    const handleResize = () => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const scale = Math.min(w / 1920, h / 1080);
-      const stageW = Math.min(2560, Math.max(1920, w / scale));
-      const stageH = Math.min(1600, Math.max(1080, h / scale));
-
-      stage.style.width = `${stageW}px`;
-      stage.style.height = `${stageH}px`;
-      stage.style.transform = `translate(${(w - stageW * scale) / 2}px, ${(h - stageH * scale) / 2}px) scale(${scale})`;
-
-      // Resize all ECharts instances
-      Object.values(chartInstances.current).forEach(inst => inst && inst.resize());
-    };
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [theme]);
-
-  // Current ranking items depending on drilldown level
-  const currentRankList = useMemo(() => {
-    if (level === 1 && selectedRegion && REGIONAL_CITIES[selectedRegion]) {
-      return REGIONAL_CITIES[selectedRegion];
-    }
-    return REGIONS;
-  }, [level, selectedRegion]);
-
-  const maxRankVal = useMemo(() => {
-    return Math.max(...currentRankList.map(r => r.v), 1);
-  }, [currentRankList]);
-
-  // Breadcrumbs Array
-  const breadcrumbs = useMemo(() => {
-    const crumbs = ['Group'];
-    if (selectedRegion) crumbs.push(selectedRegion);
-    if (selectedCity) crumbs.push(selectedCity);
-    return crumbs;
-  }, [selectedRegion, selectedCity]);
-
-  // Handle drilldown on ranking item
-  const handleItemClick = (name, hub) => {
-    if (level === 0) {
-      setLevel(1);
-      setSelectedRegion(name);
-      setSelectedCity(null);
-    } else if (level === 1) {
-      setLevel(2);
-      setSelectedCity(name);
-    }
-    if (hub) {
-      setSelectedHubData({ city: hub, v: null });
-    }
-  };
-
-  // Back one level in drilldown
-  const handleBackOneLevel = () => {
-    if (level === 2) {
-      setLevel(1);
-      setSelectedCity(null);
-    } else {
-      setLevel(0);
-      setSelectedRegion(null);
-      setSelectedCity(null);
-    }
-  };
-
-  // Auto Tour Timer
-  useEffect(() => {
-    if (isTourPaused) return;
-    const interval = setInterval(() => {
-      setTourIdx(prev => {
-        const next = (prev + 1) % TOUR_STEPS.length;
-        const step = TOUR_STEPS[next];
-        setLevel(step.level);
-        setSelectedRegion(step.region);
-        setSelectedCity(step.city);
-        if (step.hub) {
-          setSelectedHubData({ city: step.hub, v: null });
-        }
-        return next;
-      });
-    }, 9000);
-    return () => clearInterval(interval);
-  }, [isTourPaused]);
-
-  // Initialize and Update ECharts
-  useEffect(() => {
-    const isDark = theme === 'dark';
-    const textColor = isDark ? '#e8eef7' : '#0e1620';
-    const mutedColor = isDark ? '#7d8b9e' : '#566374';
-    const lineColor = isDark ? '#1a2534' : '#dbe2ec';
-    const lineSoft = isDark ? '#131c28' : '#e9eef5';
-    const panelBg = isDark ? '#0b0f16' : '#ffffff';
-
-    const axisCommons = {
-      axisLine: { lineStyle: { color: lineColor } },
-      axisTick: { show: false },
-      axisLabel: { color: mutedColor, fontSize: 11 },
-      splitLine: { lineStyle: { color: lineSoft } }
-    };
-
-    // 1. Category Mix (Donut Chart)
-    if (mixChartRef.current) {
-      if (!chartInstances.current.mix) {
-        chartInstances.current.mix = echarts.init(mixChartRef.current);
+    // 1. Civic Category Donut Chart
+    if (categoryChartRef.current) {
+      if (!chartInstances.current.category) {
+        chartInstances.current.category = echarts.init(categoryChartRef.current);
       }
-      chartInstances.current.mix.setOption({
-        animation: false,
-        tooltip: { trigger: 'item', backgroundColor: panelBg, borderColor: lineColor, textStyle: { color: textColor } },
+      chartInstances.current.category.setOption({
+        animation: true,
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: '#ffffff',
+          borderColor: '#e2e8f0',
+          textStyle: { color: '#0f172a', fontSize: 12 }
+        },
         series: [{
           type: 'pie',
-          radius: ['42%', '64%'],
-          center: ['50%', '52%'],
-          itemStyle: { borderColor: panelBg, borderWidth: 3 },
-          color: ['#49b3ff', '#7c9dff', '#3fd0a4', '#ffb547', '#38d6d0'],
+          radius: ['45%', '70%'],
+          center: ['50%', '50%'],
+          itemStyle: { borderColor: '#ffffff', borderWidth: 2.5, borderRadius: 4 },
+          color: ['#0284c7', '#059669', '#6366f1', '#d97706', '#0d9488'],
           label: {
-            color: textColor,
-            fontSize: 11.5,
+            color: '#334155',
+            fontSize: 11,
             formatter: '{b}\n{d}%',
-            lineHeight: 15,
-            alignTo: 'edge',
-            edgeDistance: 6
+            lineHeight: 14
           },
-          labelLine: { lineStyle: { color: lineColor } },
-          data: CATEGORY_MIX.map(c => ({ name: c.n, value: c.v }))
+          data: CIVIC_CATEGORIES
         }]
       }, true);
     }
 
-    // 2. Inventory Turns (Horizontal Bar Chart)
-    if (turnChartRef.current) {
-      if (!chartInstances.current.turn) {
-        chartInstances.current.turn = echarts.init(turnChartRef.current);
+    // 2. Weekly Resolution Velocity Line/Bar Chart
+    if (velocityChartRef.current) {
+      if (!chartInstances.current.velocity) {
+        chartInstances.current.velocity = echarts.init(velocityChartRef.current);
       }
-      const top5 = REGIONS.slice(0, 5);
-      chartInstances.current.turn.setOption({
-        animation: false,
-        grid: { left: 10, right: 36, top: 10, bottom: 10, containLabel: true },
-        xAxis: { type: 'value', ...axisCommons, axisLabel: { show: false }, splitLine: { show: false } },
+      chartInstances.current.velocity.setOption({
+        animation: true,
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: '#ffffff',
+          borderColor: '#e2e8f0',
+          textStyle: { color: '#0f172a', fontSize: 12 }
+        },
+        legend: {
+          top: 0,
+          right: 0,
+          itemWidth: 12,
+          itemHeight: 4,
+          textStyle: { color: '#64748b', fontSize: 11 }
+        },
+        grid: { left: 32, right: 12, top: 28, bottom: 20 },
+        xAxis: {
+          type: 'category',
+          data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+          axisLine: { lineStyle: { color: '#cbd5e1' } },
+          axisLabel: { color: '#64748b', fontSize: 11 }
+        },
+        yAxis: {
+          type: 'value',
+          axisLine: { show: false },
+          splitLine: { lineStyle: { color: '#f1f5f9' } },
+          axisLabel: { color: '#64748b', fontSize: 11 }
+        },
+        series: [
+          {
+            name: 'Reported',
+            type: 'bar',
+            barWidth: 8,
+            itemStyle: { borderRadius: [3, 3, 0, 0], color: '#93c5fd' },
+            data: [42, 58, 46, 62, 54, 38, 29]
+          },
+          {
+            name: 'Resolved',
+            type: 'bar',
+            barWidth: 8,
+            itemStyle: { borderRadius: [3, 3, 0, 0], color: '#059669' },
+            data: [40, 56, 45, 60, 53, 37, 28]
+          }
+        ]
+      }, true);
+    }
+
+    // 3. Department Turnaround Velocity (Bar Chart)
+    if (turnaroundChartRef.current) {
+      if (!chartInstances.current.turnaround) {
+        chartInstances.current.turnaround = echarts.init(turnaroundChartRef.current);
+      }
+      chartInstances.current.turnaround.setOption({
+        animation: true,
+        grid: { left: 8, right: 36, top: 6, bottom: 6, containLabel: true },
+        xAxis: { type: 'value', axisLine: { show: false }, splitLine: { show: false }, axisLabel: { show: false } },
         yAxis: {
           type: 'category',
-          data: top5.map(t => t.n.replace(" Region", "")).reverse(),
-          ...axisCommons,
-          splitLine: { show: false },
-          axisLabel: { color: textColor, fontSize: 12 }
+          data: ['Public Health', 'Sanitation', 'Streetlights', 'Roads/PWD', 'Water Supply'].reverse(),
+          axisLine: { lineStyle: { color: '#cbd5e1' } },
+          axisLabel: { color: '#334155', fontSize: 11 }
         },
         series: [{
           type: 'bar',
@@ -331,434 +198,366 @@ export default function CommandCenter({
           itemStyle: {
             borderRadius: [0, 4, 4, 0],
             color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-              { offset: 0, color: '#49b3ff' },
-              { offset: 1, color: '#38d6d0' }
+              { offset: 0, color: '#0284c7' },
+              { offset: 1, color: '#38bdf8' }
             ])
           },
-          label: { show: true, position: 'right', color: mutedColor, fontSize: 11, formatter: '{c}d' },
-          data: [42, 38, 46, 51, 35].reverse()
+          label: { show: true, position: 'right', color: '#64748b', fontSize: 11, formatter: '{c} hrs' },
+          data: [1.8, 2.2, 2.5, 3.4, 4.1].reverse()
         }]
       }, true);
     }
 
-    // 3. Revenue Trend and Target (Multi-Line Area Chart)
-    if (trendChartRef.current) {
-      if (!chartInstances.current.trend) {
-        chartInstances.current.trend = echarts.init(trendChartRef.current);
+    // 4. Resource Allocation Gauge/Bar
+    if (resourceChartRef.current) {
+      if (!chartInstances.current.resource) {
+        chartInstances.current.resource = echarts.init(resourceChartRef.current);
       }
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const actual = [2.4, 2.7, 3.1, 3.0, 3.4, 3.8, 3.6, 4.1, null, null, null, null];
-      const target = [2.5, 2.6, 2.9, 3.1, 3.3, 3.5, 3.7, 3.9, 4.1, 4.3, 4.5, 4.8];
-      const forecast = [null, null, null, null, null, null, null, 4.1, 4.4, 4.6, 4.9, 5.2];
-
-      chartInstances.current.trend.setOption({
-        animation: false,
-        tooltip: { trigger: 'axis', backgroundColor: panelBg, borderColor: lineColor, textStyle: { color: textColor } },
-        legend: {
-          top: 4,
-          right: 14,
-          itemWidth: 14,
-          itemHeight: 4,
-          textStyle: { color: mutedColor, fontSize: 11.5 }
+      chartInstances.current.resource.setOption({
+        animation: true,
+        grid: { left: 34, right: 12, top: 22, bottom: 20 },
+        xAxis: {
+          type: 'category',
+          data: ['Water Tanks', 'Ambulance', 'PWD Trucks', 'Disaster Van', 'Sweepers'],
+          axisLine: { lineStyle: { color: '#cbd5e1' } },
+          axisLabel: { color: '#64748b', fontSize: 10.5 }
         },
-        grid: { left: 42, right: 18, top: 32, bottom: 24 },
-        xAxis: { type: 'category', data: months, ...axisCommons, splitLine: { show: false } },
-        yAxis: { type: 'value', name: '$100M', nameTextStyle: { color: mutedColor, fontSize: 11 }, ...axisCommons },
-        series: [
-          {
-            name: 'Actual',
-            type: 'line',
-            data: actual,
-            smooth: true,
-            lineStyle: { width: 2.8, color: '#49b3ff' },
-            areaStyle: {
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: 'rgba(73, 179, 255, 0.3)' },
-                { offset: 1, color: 'rgba(73, 179, 255, 0)' }
-              ])
+        yAxis: {
+          type: 'value',
+          max: 100,
+          axisLine: { show: false },
+          splitLine: { lineStyle: { color: '#f1f5f9' } },
+          axisLabel: { color: '#64748b', fontSize: 10, formatter: '{value}%' }
+        },
+        series: [{
+          name: 'Fleet Deployed',
+          type: 'bar',
+          barWidth: 14,
+          itemStyle: {
+            borderRadius: [4, 4, 0, 0],
+            color: (params) => {
+              const colors = ['#0284c7', '#e11d48', '#d97706', '#059669', '#6366f1'];
+              return colors[params.dataIndex % colors.length];
             }
           },
-          {
-            name: 'Target',
-            type: 'line',
-            data: target,
-            smooth: true,
-            lineStyle: { width: 2, color: '#7c9dff', type: 'dashed' }
-          },
-          {
-            name: 'Forecast',
-            type: 'line',
-            data: forecast,
-            smooth: true,
-            lineStyle: { width: 2.2, color: '#3fd0a4', type: 'dotted' }
-          }
-        ]
+          data: [88, 95, 76, 92, 84]
+        }]
       }, true);
     }
 
-    // 4. Collections and Cash Flow (Dual Bar & Line Chart)
-    if (cashChartRef.current) {
-      if (!chartInstances.current.cash) {
-        chartInstances.current.cash = echarts.init(cashChartRef.current);
-      }
-      const months6 = ['Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'];
-      chartInstances.current.cash.setOption({
-        animation: false,
-        tooltip: { trigger: 'axis', backgroundColor: panelBg, borderColor: lineColor, textStyle: { color: textColor } },
-        legend: {
-          top: 2,
-          right: 2,
-          itemWidth: 12,
-          itemHeight: 4,
-          textStyle: { color: mutedColor, fontSize: 11 }
-        },
-        grid: { left: 44, right: 16, top: 30, bottom: 24 },
-        xAxis: { type: 'category', data: months6, ...axisCommons, splitLine: { show: false } },
-        yAxis: { type: 'value', name: '$10M', nameTextStyle: { color: mutedColor, fontSize: 11 }, ...axisCommons },
-        series: [
-          {
-            name: 'Receivable',
-            type: 'bar',
-            data: [32, 40, 36, 48, 52, 59],
-            barWidth: 9,
-            itemStyle: { borderRadius: [3, 3, 0, 0], color: '#7c9dff' }
-          },
-          {
-            name: 'Collected',
-            type: 'bar',
-            data: [28, 36, 33, 44, 49, 56],
-            barWidth: 9,
-            itemStyle: { borderRadius: [3, 3, 0, 0], color: '#3fd0a4' }
-          },
-          {
-            name: 'Cash Flow',
-            type: 'line',
-            data: [14, 18, 16, 24, 28, 34],
-            smooth: true,
-            lineStyle: { width: 2.2, color: '#ffb547' }
-          }
-        ]
-      }, true);
-    }
-  }, [theme, level, selectedRegion]);
-
-  // 5 Top KPI Widgets
-  const kpiList = useMemo(() => [
-    { l: "Annual revenue", v: "13.61", u: "$100M", d: 12.6, good: true },
-    { l: "Target attainment", v: "102.3", u: "%", d: 2.4, good: true },
-    { l: "Gross margin", v: "34.8", u: "%", d: 1.2, good: true },
-    { l: "Collection rate", v: "86.3", u: "%", d: -1.8, good: false },
-    { l: "Inventory turns", v: "41.2", u: "days", d: -3.6, good: true }
-  ], []);
-
-  // Hub Selection Callback from Globe
-  const handleSelectHub = (city, throughput) => {
-    setSelectedHubData({ city, v: throughput || 64 });
-    const rIdx = ROUTES.findIndex(r => r.from === city || r.to === city);
-    if (rIdx >= 0) setSelectedRouteIdx(rIdx);
-    setRouteHint(`${city} focused`);
-  };
+    const handleResize = () => {
+      Object.values(chartInstances.current).forEach(c => c && c.resize());
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
-    <div className="command-viewport">
-      <div id="stage" ref={stageRef}>
-        {/* Top Header Bar */}
-        <div className="top">
-          <div className="title">
-            GLOBAL OPERATIONS COMMAND CENTER
-            <small>LIVE GROUP PERFORMANCE · RAPID RESOLVE SYSTEM</small>
-          </div>
-
-          {/* Interactive Drilldown Breadcrumb */}
-          <div className="crumb">
-            {level > 0 && (
-              <button onClick={handleBackOneLevel}>
-                <ArrowLeft className="w-3.5 h-3.5 inline mr-1" /> Back
-              </button>
-            )}
-            {breadcrumbs.map((crumb, idx) => (
-              <React.Fragment key={crumb}>
-                {idx > 0 && <span>›</span>}
-                <span className={idx === breadcrumbs.length - 1 ? "cur" : ""}>{crumb}</span>
-              </React.Fragment>
-            ))}
-          </div>
-
-          {/* Rapid Resolve App Navigation Switcher */}
-          <div className="nav-tabs-bar ml-4">
-            <button
-              className={`nav-tab-btn ${activeTab === 'command' ? 'active' : ''}`}
-              onClick={() => onTabChange('command')}
-            >
-              Command Deck
-            </button>
-            <button
-              className={`nav-tab-btn ${activeTab === 'citizen' ? 'active' : ''}`}
-              onClick={() => onTabChange('citizen')}
-            >
-              Citizen AI Desk
-            </button>
-            <button
-              className={`nav-tab-btn ${activeTab === 'track' ? 'active' : ''}`}
-              onClick={() => onTabChange('track')}
-            >
-              Track Complaint
-            </button>
-          </div>
-
-          <div className="spacer" />
-
-          {/* Live Pulsing Beacon */}
-          <div className={`live ${isLive ? '' : 'off'}`}>
-            <span className="blip" />
-            <span>{isLive ? 'LIVE' : 'DISCONNECTED'}</span>
-          </div>
-
-          {/* Real-time Precision Digital Clock */}
-          <div className="clock">
-            <span>{clockTime.t || '12:00:00'}</span>
-            <small>{clockTime.d || 'UTC 2026'}</small>
-          </div>
-        </div>
-
-        {/* Main 3-Column Deck Layout */}
-        <div className="body">
-          {/* Left Column */}
-          <div className="col">
-            {/* Card 1: Regional Attainment */}
-            <div className="card">
-              <h2>
-                Regional attainment
-                <span className="r">
-                  {level === 0 ? 'Click to drill into cities' : 'District stores'}
+    <div className="csn-command-container">
+      {/* Top Municipal Navigation Header */}
+      <header className="csn-top-header px-4 lg:px-8 py-3.5">
+        <div className="max-w-[1780px] mx-auto flex flex-wrap items-center justify-between gap-4">
+          {/* Logo & City Seal */}
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-sky-600 to-blue-700 flex items-center justify-center shadow-md shadow-sky-500/20 text-white">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg lg:text-xl font-extrabold tracking-tight text-slate-900 leading-tight">
+                  Chhatrapati Sambhaji Nagar
+                </h1>
+                <span className="bg-sky-100 border border-sky-300 text-sky-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Smart City Command
                 </span>
-              </h2>
-              <div className="rank">
-                {currentRankList.map((item, idx) => {
-                  const pct = Math.round((item.v / item.q) * 100);
-                  const isSel = selectedRegion === item.n || selectedCity === item.n;
-                  return (
-                    <div
-                      key={item.n}
-                      className={`rk ${isSel ? 'sel' : ''}`}
-                      onClick={() => handleItemClick(item.n, item.hub)}
-                    >
-                      <div className={`no ${idx < 3 ? 't3' : ''}`}>{idx + 1}</div>
-                      <div className="nm">{item.n}</div>
-                      <div className="track">
-                        <div
-                          className="fill"
-                          style={{ width: `${Math.min(100, (item.v / maxRankVal) * 100)}%` }}
-                        />
-                      </div>
-                      <div className="v">${formatVal(item.v)}00M</div>
-                      <div
-                        className="p"
-                        style={{
-                          color: pct >= 100 ? 'var(--c3)' : pct >= 90 ? 'var(--c4)' : 'var(--c5)'
-                        }}
-                      >
-                        {pct}%
-                      </div>
-                    </div>
-                  );
-                })}
+              </div>
+              <p className="text-xs text-slate-500 font-medium">
+                Municipal Corporation (CSNMC) · Real-Time Emergency Dispatch & Civic Operations
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation View Switcher */}
+          <div className="flex bg-slate-100 border border-slate-200 p-1 rounded-xl shadow-inner">
+            <button
+              onClick={() => onTabChange('command')}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                activeTab === 'command'
+                  ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5 text-sky-600" />
+              <span>Smart City Deck</span>
+            </button>
+            <button
+              onClick={() => onTabChange('citizen')}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                activeTab === 'citizen'
+                  ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Radio className="w-3.5 h-3.5 text-sky-600" />
+              <span>Citizen AI Desk</span>
+            </button>
+            <button
+              onClick={() => onTabChange('track')}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                activeTab === 'track'
+                  ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Search className="w-3.5 h-3.5 text-sky-600" />
+              <span>Track Complaint</span>
+            </button>
+          </div>
+
+          {/* Live Beacon & Clock */}
+          <div className="flex items-center gap-4">
+            <div className="live-beacon">
+              <span className="live-beacon-dot" />
+              <span>TELEMETRY LIVE</span>
+            </div>
+            <div className="text-right font-mono hidden sm:block">
+              <div className="text-sm font-bold text-slate-800 tracking-tight">
+                {clockTime.t || '12:00:00 PM'}
+              </div>
+              <div className="text-[11px] text-slate-500 font-sans">
+                {clockTime.d || 'Chhatrapati Sambhaji Nagar'}
               </div>
             </div>
+          </div>
+        </div>
+      </header>
 
-            {/* Card 2: Category Mix */}
-            <div className="card">
-              <h2>Category mix</h2>
-              <div className="chart" ref={mixChartRef} />
-            </div>
-
-            {/* Card 3: Inventory Turns */}
-            <div className="card">
-              <h2>
-                Inventory turns
-                <span className="r">days</span>
-              </h2>
-              <div className="chart" ref={turnChartRef} />
+      {/* Top 5-Card Municipal KPI Bar */}
+      <section className="px-4 lg:px-8 py-4 max-w-[1780px] w-full mx-auto">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+          <div className="csn-kpi">
+            <div className="label">Active Grievances</div>
+            <div className="val">48<u>cases</u></div>
+            <div className="text-xs font-semibold text-emerald-600 flex items-center gap-1 mt-1">
+              <TrendingUp className="w-3 h-3" /> 8.4% faster resolution
             </div>
           </div>
 
-          {/* Mid Column */}
-          <div className="mid">
-            {/* 5-Card KPI Bar */}
-            <div className="kpibar">
-              {kpiList.map((kpi) => {
-                const isPos = kpi.d >= 0;
-                const isGood = kpi.good ? isPos : !isPos;
+          <div className="csn-kpi">
+            <div className="label">Critical Emergency Triage</div>
+            <div className="val text-rose-600">3<u>urgent</u></div>
+            <div className="text-xs font-semibold text-rose-600 flex items-center gap-1 mt-1">
+              <Flame className="w-3 h-3" /> Average SLA: 24 mins
+            </div>
+          </div>
+
+          <div className="csn-kpi">
+            <div className="label">SLA Compliance Rate</div>
+            <div className="val text-sky-700">98.6%</div>
+            <div className="text-xs font-semibold text-emerald-600 flex items-center gap-1 mt-1">
+              <CheckCircle2 className="w-3 h-3" /> Above Target 95.0%
+            </div>
+          </div>
+
+          <div className="csn-kpi">
+            <div className="label">Verified Solved Today</div>
+            <div className="val text-emerald-700">142<u>solved</u></div>
+            <div className="text-xs font-semibold text-slate-500 flex items-center gap-1 mt-1">
+              <span>All 9 municipal divisions</span>
+            </div>
+          </div>
+
+          <div className="csn-kpi">
+            <div className="label">Active Field Patrols</div>
+            <div className="val text-indigo-700">18<u>teams</u></div>
+            <div className="text-xs font-semibold text-indigo-600 flex items-center gap-1 mt-1">
+              <Truck className="w-3 h-3" /> 94% on-site readiness
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Main 3-Column Municipal Command Deck */}
+      <main className="px-4 lg:px-8 pb-8 max-w-[1780px] w-full mx-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Left Column: Ward Performance & Category Breakdown (3 cols) */}
+        <div className="lg:col-span-3 flex flex-col gap-4">
+          {/* Ward-wise Resolution Performance */}
+          <div className="csn-card flex-1">
+            <div className="csn-card-head">
+              <h2>Ward Resolution Attainment</h2>
+              <span className="badge-info">CSNMC Zones</span>
+            </div>
+            <div className="p-3.5 space-y-3">
+              {WARDS_PERFORMANCE.map((ward, idx) => {
+                const pct = Math.round((ward.resolved / ward.total) * 100);
+                const isSelected = selectedWard === ward.name;
                 return (
-                  <div className="kpi" key={kpi.l}>
-                    <div className="l">{kpi.l}</div>
-                    <div className="v">
-                      {kpi.v}<u>{kpi.u}</u>
+                  <div
+                    key={ward.name}
+                    onClick={() => setSelectedWard(ward.name)}
+                    className={`p-2 rounded-lg cursor-pointer transition ${
+                      isSelected ? 'bg-sky-50 border border-sky-300' : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                        <span className="w-4 h-4 rounded bg-slate-100 text-slate-700 font-mono text-[10px] flex items-center justify-center font-bold">
+                          {idx + 1}
+                        </span>
+                        {ward.name}
+                      </span>
+                      <span className="font-mono font-bold text-sky-700">{pct}%</span>
                     </div>
-                    <div className={`d ${isGood ? 'up' : 'down'}`}>
-                      {isPos ? '▲' : '▼'} {Math.abs(kpi.d)}%
-                      <span>YoY</span>
+                    <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-sky-600 h-full rounded-full"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1">
+                      <span>{ward.leader}</span>
+                      <span>{ward.resolved}/{ward.total} solved</span>
                     </div>
                   </div>
                 );
               })}
             </div>
+          </div>
 
-            {/* 3D Earth Globe Stage */}
-            <div className="globe">
-              <InteractiveGlobe
-                markers={HUBS}
-                routes={ROUTES}
-                selectedHub={selectedHubData?.city}
-                onSelectHub={handleSelectHub}
-                isAutoTour={!isTourPaused}
-              />
-
-              {/* Futuristic HUD Corner Crosshairs */}
-              <div className="hud">
-                <i /><i /><i /><i />
-              </div>
-
-              {/* HUD Header Title */}
-              <div className="gtitle">
-                <b>GLOBAL TRADE NETWORK</b>
-                <small>ROUTES · HUBS · REALTIME</small>
-              </div>
-
-              {/* Status Readout Panel */}
-              <div className="readout">
-                {selectedHubData ? (
-                  <>
-                    <span>Selected hub</span>
-                    <b>{selectedHubData.city}</b>
-                    <span className="k">Throughput {selectedHubData.v || '78'}</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Hubs</span>
-                    <b>{HUBS.length}</b>
-                    <span>· Routes</span>
-                    <b>{ROUTES.length}</b>
-                    <span className="k">
-                      In transit ${ROUTES.reduce((acc, cur) => acc + cur.v, 0).toFixed(1)}B
-                    </span>
-                  </>
-                )}
-              </div>
-
-              <div className="ghint">
-                Drag to rotate · click a hub to drill down
-              </div>
+          {/* Civic Issue Category Mix */}
+          <div className="csn-card h-64">
+            <div className="csn-card-head">
+              <h2>Civic Grievance Distribution</h2>
             </div>
+            <div className="flex-1 w-full p-2" ref={categoryChartRef} />
+          </div>
 
-            {/* Bottom Card: Revenue Trend & Target */}
-            <div className="card">
+          {/* Department Turnaround Velocity */}
+          <div className="csn-card h-56">
+            <div className="csn-card-head">
+              <h2>SLA Turnaround Speed</h2>
+              <span className="badge-info">Hours Avg</span>
+            </div>
+            <div className="flex-1 w-full p-2" ref={turnaroundChartRef} />
+          </div>
+        </div>
+
+        {/* Center Column: Chhatrapati Sambhaji Nagar Map & Velocity Graph (6 cols) */}
+        <div className="lg:col-span-6 flex flex-col gap-4">
+          {/* Main Geo-Intelligence Radar Map */}
+          <div className="csn-card flex-1 min-h-[440px] flex flex-col">
+            <div className="csn-card-head justify-between">
               <h2>
-                Revenue trend and target
-                <span className="r">
-                  {selectedCity || selectedRegion || 'Group'}
-                </span>
+                Chhatrapati Sambhaji Nagar Incident Radar
+                {selectedWard && (
+                  <span className="ml-2 text-xs text-sky-700 font-semibold bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                    Focused: {selectedWard}
+                  </span>
+                )}
               </h2>
-              <div className="chart" ref={trendChartRef} />
+              <span className="text-xs text-slate-500 font-medium">
+                Live Geolocation Telemetry
+              </span>
+            </div>
+            <div className="flex-1 p-2">
+              <SambhajiNagarMap
+                selectedWard={selectedWard}
+                onSelectWard={(name) => setSelectedWard(name)}
+              />
             </div>
           </div>
 
-          {/* Right Column */}
-          <div className="col">
-            {/* Card 1: Cross-border Routes */}
-            <div className="card">
-              <h2>
-                Cross-border routes
-                <span className="r">{routeHint}</span>
-              </h2>
-              <div className="routes">
-                {ROUTES.map((route, idx) => (
+          {/* Weekly Intake vs Resolution Velocity */}
+          <div className="csn-card h-64">
+            <div className="csn-card-head">
+              <h2>Weekly Intake vs Resolution Velocity</h2>
+              <span className="badge-info">Past 7 Days</span>
+            </div>
+            <div className="flex-1 w-full p-2" ref={velocityChartRef} />
+          </div>
+        </div>
+
+        {/* Right Column: Active Field Units & Live Ticker (3 cols) */}
+        <div className="lg:col-span-3 flex flex-col gap-4">
+          {/* Active Field Response Units */}
+          <div className="csn-card flex-1">
+            <div className="csn-card-head">
+              <h2>Active Response Units</h2>
+              <span className="badge-info">{FIELD_UNITS.length} active</span>
+            </div>
+            <div className="p-3 divide-y divide-slate-100 max-h-[340px] overflow-y-auto">
+              {FIELD_UNITS.map((unit) => (
+                <div key={unit.id} className="py-2.5 first:pt-1 last:pb-1">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <b className="text-slate-800">{unit.unit}</b>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                        unit.status === 'ON SITE'
+                          ? 'bg-rose-100 text-rose-700'
+                          : unit.status === 'EN ROUTE'
+                          ? 'bg-amber-100 text-amber-700'
+                          : unit.status === 'COMPLETED'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-sky-100 text-sky-700'
+                      }`}
+                    >
+                      {unit.status}
+                    </span>
+                  </div>
+                  <div className="text-[11.5px] text-slate-600 font-medium flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-slate-400" />
+                    {unit.location}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    {unit.task}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Live Ward Emergency Alerts Marquee */}
+          <div className="csn-card h-64">
+            <div className="csn-card-head">
+              <h2>Live Municipal Dispatch Stream</h2>
+              <span className="badge-info">Realtime</span>
+            </div>
+            <div className="p-3 flex-1 overflow-hidden relative">
+              <div className="csn-alert-lane">
+                {SAMBHAJI_NAGAR_ALERTS.concat(SAMBHAJI_NAGAR_ALERTS).map((alert, idx) => (
                   <div
-                    key={`${route.from}-${route.to}`}
-                    className={`rt ${idx === selectedRouteIdx ? 'sel' : ''}`}
-                    onClick={() => {
-                      setSelectedRouteIdx(idx);
-                      setSelectedHubData({ city: route.from, v: null });
-                      setRouteHint(`${route.from} → ${route.to}`);
-                    }}
+                    key={idx}
+                    className={`csn-alert-item ${alert.level === 'HIGH' ? 'critical' : ''}`}
                   >
-                    <span className="pair">
-                      {route.from}<em>→</em>{route.to}
+                    <span className="font-mono text-[11px] text-slate-500">{alert.time}</span>
+                    <span className="flex-1 text-[11.5px] font-medium text-slate-800 truncate">
+                      {alert.desc}
                     </span>
                     <span
-                      className="amt"
-                      style={{ color: route.level === 'warn' ? 'var(--c4)' : 'var(--ink)' }}
+                      className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                        alert.level === 'HIGH'
+                          ? 'bg-rose-100 text-rose-700'
+                          : 'bg-sky-100 text-sky-700'
+                      }`}
                     >
-                      {route.v.toFixed(2)}
-                    </span>
-                    <span
-                      className="dl"
-                      style={{ color: route.d >= 0 ? 'var(--c3)' : 'var(--c5)' }}
-                    >
-                      {route.d >= 0 ? '+' : ''}{route.d}%
+                      {alert.dept}
                     </span>
                   </div>
                 ))}
               </div>
             </div>
+          </div>
 
-            {/* Card 2: Live Alerts */}
-            <div className="card">
-              <h2>
-                Live alerts
-                <span className="r">
-                  {ALERTS.filter(a => a[2] === 'a').length} critical
-                </span>
-              </h2>
-              <div className="alerts">
-                <div className="lane">
-                  {ALERTS.concat(ALERTS).map(([time, desc, severity], idx) => (
-                    <div
-                      key={idx}
-                      className={`al ${severity === 'a' ? 'hi' : ''}`}
-                    >
-                      <span className="t">{time}</span>
-                      <span className="x">{desc}</span>
-                      <span className={`lv ${severity}`}>
-                        {severity === 'a' ? 'HIGH' : 'MED'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          {/* Municipal Resource Allocation */}
+          <div className="csn-card h-56">
+            <div className="csn-card-head">
+              <h2>Fleet Readiness Deployment</h2>
+              <span className="badge-info">Active Assets</span>
             </div>
-
-            {/* Card 3: Collections and Cash Flow */}
-            <div className="card">
-              <h2>Collections and cash flow</h2>
-              <div className="chart" ref={cashChartRef} />
-            </div>
+            <div className="flex-1 w-full p-2" ref={resourceChartRef} />
           </div>
         </div>
-
-        {/* Bottom Tour Dots Indicator */}
-        <div className="dots">
-          <span
-            className="cursor-pointer hover:text-white"
-            onClick={() => setIsTourPaused(p => !p)}
-          >
-            {isTourPaused ? 'TOUR PAUSED' : 'AUTO TOUR'}
-          </span>
-          {TOUR_STEPS.map((_, idx) => (
-            <i key={idx} className={idx === tourIdx ? 'on' : ''} />
-          ))}
-        </div>
-      </div>
-
-      {/* Floating Theme Toggle Button */}
-      <button
-        className="kit-theme-float"
-        onClick={toggleTheme}
-        title="Toggle Dark / Light Mode"
-        aria-label="Toggle Theme"
-      >
-        {theme === 'dark' ? <Sun /> : <Moon />}
-      </button>
+      </main>
     </div>
   );
 }
