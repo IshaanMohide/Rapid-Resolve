@@ -27,9 +27,10 @@
   11. Town Planning & Building Safety
   12. Stray Animal & Veterinary Control
 - 🌊 **Critical Flood Protocol**: Incidents mentioning floods or inundations are instantly escalated to `CRITICAL` urgency with automated emergency dispatch.
+- 🔍 **Real-Time Citizen Complaint Tracking**: Search complaints by Ticket ID, monitor deterministic SLA countdowns, and inspect interactive 4-stage lifecycle resolution progress.
 - 📍 **Interactive Geospatial Map**: Leaflet map integration with draggable pin, Nominatim reverse geocoding, and GPS auto-location.
 - 🔒 **Admin Command Center**: Role-secured interface protected by `admin_credentials.json` with human-in-the-loop override capabilities.
-- 🗑️ **One-Click Auto-Resolve**: Marking status as `RESOLVED` automatically purges the incident from the active emergency queue.
+- 🛡️ **Verified Resolution Retention**: Completed incidents preserve verifiable resolution timestamps and inspector notes for citizen transparency.
 - 📱 **Automated SMS Dispatch**: Simulates or delivers live Twilio SMS notifications directly to first responders on critical events.
 
 ---
@@ -48,7 +49,8 @@ rapidresolve/
 ├── render.yaml                # 1-Click Render.com deployment blueprint
 ├── server.js                  # Unified Express server & static asset host
 ├── src/
-│   ├── App.jsx                # Main React UI (Citizen Desk & Admin Center)
+│   ├── App.jsx                # Main React UI (Citizen Desk, Tracker & Admin Center)
+│   ├── ComplaintTracker.jsx   # Citizen complaint tracker with lifecycle stepper & SLA timer
 │   ├── EmergencyMap.jsx       # Geospatial incident map view
 │   ├── ErrorBoundary.jsx      # React error boundary component
 │   ├── LocationPickerModal.jsx# Interactive map modal with pin drop & GPS

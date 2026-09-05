@@ -26,11 +26,13 @@ import {
   Map,
   Navigation,
   KeyRound,
-  Trash2
+  Trash2,
+  Search
 } from 'lucide-react';
 import EmergencyMap from './EmergencyMap';
 import SLAChart from './SLAChart';
 import LocationPickerModal from './LocationPickerModal';
+import ComplaintTracker from './ComplaintTracker';
 import { ErrorBoundary } from './ErrorBoundary';
 
 // Relative API base connects seamlessly in both Vite proxy dev and Express unified production
@@ -139,7 +141,8 @@ function triageClientSide(description, locationName, coords) {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('citizen'); // 'citizen' or 'admin'
+  const [activeTab, setActiveTab] = useState('citizen'); // 'citizen', 'track', or 'admin'
+  const [trackedTicketId, setTrackedTicketId] = useState('');
   const [tickets, setTickets] = useState([]);
   const [health, setHealth] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -245,6 +248,15 @@ export default function App() {
       const t = res.data?.ticket;
 
       if (t) {
+        // Save to citizen browser tracking history
+        try {
+          const saved = JSON.parse(localStorage.getItem('rapidresolve_citizen_tickets') || '[]');
+          const updated = [t.id, ...saved.filter((x) => x !== t.id)].slice(0, 8);
+          localStorage.setItem('rapidresolve_citizen_tickets', JSON.stringify(updated));
+        } catch {
+          // Ignore localStorage errors
+        }
+
         setMessages((prev) => [
           ...prev,
           {
@@ -259,6 +271,13 @@ export default function App() {
       console.warn('Backend API unavailable or timed out. Engaging resilient edge triage engine:', err);
       // Resilient fallback: Triage locally and immediately display result so user is NEVER blocked!
       const fallbackTicket = triageClientSide(currentText, selectedLocation, selectedCoords);
+      try {
+        const saved = JSON.parse(localStorage.getItem('rapidresolve_citizen_tickets') || '[]');
+        const updated = [fallbackTicket.id, ...saved.filter((x) => x !== fallbackTicket.id)].slice(0, 8);
+        localStorage.setItem('rapidresolve_citizen_tickets', JSON.stringify(updated));
+      } catch {
+        // Ignore localStorage errors
+      }
       setTickets((prev) => [fallbackTicket, ...prev]);
       setMessages((prev) => [
         ...prev,
@@ -287,6 +306,8 @@ export default function App() {
         return;
       }
       setActiveTab('admin');
+    } else if (tab === 'track') {
+      setActiveTab('track');
     } else {
       setActiveTab('citizen');
     }
@@ -365,11 +386,16 @@ export default function App() {
         department: overrideDepartment,
         status: overrideStatus
       });
-      if (overrideStatus === 'RESOLVED' || res.data?.deleted) {
-        // If problem resolved, delete it from active tickets
-        setTickets((prev) => prev.filter((t) => t.id !== overrideTicket.id));
-      } else if (res.data && res.data.id) {
+      if (res.data && res.data.id) {
         setTickets((prev) => prev.map((t) => (t.id === res.data.id ? res.data : t)));
+      } else {
+        setTickets((prev) => prev.map((t) => (t.id === overrideTicket.id ? {
+          ...t,
+          urgency: overrideUrgency,
+          department: overrideDepartment,
+          status: overrideStatus,
+          resolved_at: overrideStatus === 'RESOLVED' ? (t.resolved_at || new Date().toISOString()) : t.resolved_at
+        } : t)));
       }
       setOverrideTicket(null);
     } catch (err) {
@@ -379,15 +405,30 @@ export default function App() {
     }
   };
 
-  const handleResolveAndDelete = async (ticket) => {
+  const handleResolveTicket = async (ticket) => {
     try {
-      await axios.patch(`${API_BASE}/tickets/${ticket.id}/override`, {
-        status: 'RESOLVED'
+      const res = await axios.patch(`${API_BASE}/tickets/${ticket.id}/override`, {
+        status: 'RESOLVED',
+        resolution_notes: 'Marked resolved and verified by command center.'
       }, { timeout: 4000 });
-      setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+      if (res.data && res.data.id) {
+        setTickets((prev) => prev.map((t) => (t.id === res.data.id ? res.data : t)));
+      } else {
+        setTickets((prev) => prev.map((t) => (t.id === ticket.id ? {
+          ...t,
+          status: 'RESOLVED',
+          resolved_at: new Date().toISOString(),
+          resolution_notes: 'Marked resolved and verified by command center.'
+        } : t)));
+      }
     } catch (err) {
       console.warn('Backend unavailable, resolving locally:', err.message);
-      setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+      setTickets((prev) => prev.map((t) => (t.id === ticket.id ? {
+        ...t,
+        status: 'RESOLVED',
+        resolved_at: new Date().toISOString(),
+        resolution_notes: 'Marked resolved and verified by command center.'
+      } : t)));
     }
   };
 
@@ -451,18 +492,29 @@ export default function App() {
           <div className="flex bg-slate-800/90 border border-slate-700/80 rounded-xl p-1 shadow-inner">
             <button
               onClick={() => handleTabSwitch('citizen')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
+              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
                 activeTab === 'citizen'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                   : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
               }`}
             >
               <Radio className="w-4 h-4" />
-              Citizen AI Desk
+              <span>Citizen AI Desk</span>
+            </button>
+            <button
+              onClick={() => handleTabSwitch('track')}
+              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
+                activeTab === 'track'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              <Search className="w-4 h-4" />
+              <span>Track Complaint</span>
             </button>
             <button
               onClick={() => handleTabSwitch('admin')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
+              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
                 activeTab === 'admin'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                   : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
@@ -473,7 +525,8 @@ export default function App() {
               ) : (
                 <Lock className="w-4 h-4 text-amber-400" />
               )}
-              <span>Admin Command Center</span>
+              <span className="hidden md:inline">Admin Command Center</span>
+              <span className="md:hidden">Admin</span>
               {criticalCount > 0 && (
                 <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
                   {criticalCount}
@@ -501,6 +554,23 @@ export default function App() {
                   </p>
                 </div>
                 <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+              </div>
+
+              {/* Quick Tracking Access Banner */}
+              <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 flex flex-wrap justify-between items-center gap-3 shadow-md">
+                <div className="flex items-center gap-2.5 text-xs text-slate-300">
+                  <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                    <Search className="w-3.5 h-3.5" />
+                  </div>
+                  <span>Have an existing complaint reference? Inspect real-time status:</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('track')}
+                  className="inline-flex items-center gap-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 px-3 py-1.5 rounded-xl text-xs font-semibold transition"
+                >
+                  <span>Track Complaint Now ➔</span>
+                </button>
               </div>
 
               {/* Interactive Chat Console */}
@@ -594,6 +664,21 @@ export default function App() {
                                 </div>
                               </div>
                             )}
+
+                            {/* Track Status Navigation Button */}
+                            <div className="pt-2 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTrackedTicketId(m.ticket.id);
+                                  setActiveTab('track');
+                                }}
+                                className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition shadow-md shadow-blue-600/30"
+                              >
+                                <Search className="w-3.5 h-3.5" />
+                                <span>Track Live Status ➔</span>
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -696,6 +781,15 @@ export default function App() {
                 </form>
               </div>
             </div>
+          ) : activeTab === 'track' ? (
+            /* ================================================================= */
+            /* CITIZEN APP: COMPLAINT TRACKER & LIVE STATUS                      */
+            /* ================================================================= */
+            <ComplaintTracker
+              initialTicketId={trackedTicketId}
+              onSwitchToReport={() => setActiveTab('citizen')}
+              knownTickets={safeTickets}
+            />
           ) : (
             /* ================================================================= */
             /* ADMIN COMMAND CENTER: QUEUE, MAP, ANALYTICS, HUMAN OVERRIDE       */
@@ -885,12 +979,17 @@ export default function App() {
                                 <td className="py-3 px-3 text-right whitespace-nowrap">
                                   <div className="inline-flex items-center gap-1.5 justify-end">
                                     <button
-                                      onClick={() => handleResolveAndDelete(t)}
-                                      title="Resolve problem and delete from queue"
-                                      className="inline-flex items-center gap-1 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-400 border border-emerald-700/60 px-2.5 py-1 rounded-lg text-xs font-semibold transition shadow-sm"
+                                      onClick={() => handleResolveTicket(t)}
+                                      disabled={t.status === 'RESOLVED'}
+                                      title={t.status === 'RESOLVED' ? 'Incident already verified resolved' : 'Mark incident as verified & resolved'}
+                                      className={`inline-flex items-center gap-1 border px-2.5 py-1 rounded-lg text-xs font-semibold transition shadow-sm ${
+                                        t.status === 'RESOLVED'
+                                          ? 'bg-emerald-950/40 text-emerald-400/60 border-emerald-800/40 cursor-default'
+                                          : 'bg-emerald-950/70 hover:bg-emerald-900 text-emerald-400 border border-emerald-700/60'
+                                      }`}
                                     >
                                       <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                                      <span>Resolve</span>
+                                      <span>{t.status === 'RESOLVED' ? 'Resolved' : 'Resolve'}</span>
                                     </button>
                                     <button
                                       onClick={() => openOverrideModal(t)}
@@ -1046,12 +1145,12 @@ export default function App() {
                     <option value="OPEN">OPEN</option>
                     <option value="IN_PROGRESS">IN_PROGRESS</option>
                     <option value="DISPATCHED">DISPATCHED</option>
-                    <option value="RESOLVED">RESOLVED (Deletes problem from queue)</option>
+                    <option value="RESOLVED">RESOLVED (Verified & Closed)</option>
                   </select>
                   {overrideStatus === 'RESOLVED' && (
                     <p className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span>Marking status as RESOLVED will permanently delete this problem from the active queue.</span>
+                      <span>Marking status as RESOLVED confirms resolution and logs it in citizen tracking records.</span>
                     </p>
                   )}
                 </div>

@@ -27,6 +27,22 @@ let pgPool = null;
 let nextTicketId = 4825;
 const inMemoryTickets = [
   {
+    id: 4820,
+    description: 'Fallen storm tree branch obstructing municipal park pedestrian walkway',
+    category: 'Parks, Trees & Horticulture',
+    urgency: 'LOW',
+    department: 'Parks, Trees & Horticulture',
+    location_name: 'Central City Park, Gate 4',
+    latitude: 19.8740,
+    longitude: 75.3410,
+    sla_deadline: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    is_emergency: false,
+    status: 'RESOLVED',
+    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    resolved_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    resolution_notes: 'Horticulture quick-response unit cleared the fallen timber and reopened pedestrian path.'
+  },
+  {
     id: 4821,
     description: 'High-pressure water pipeline rupture flooding arterial road',
     category: 'Water Supply',
@@ -124,8 +140,12 @@ async function initPgSchema() {
         sla_deadline TIMESTAMP,
         is_emergency BOOLEAN DEFAULT FALSE,
         status VARCHAR(50) DEFAULT 'OPEN',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP,
+        resolution_notes TEXT
       );
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS resolution_notes TEXT;
     `);
     console.log('✅ PostgreSQL schema verified.');
   } catch (err) {
@@ -507,6 +527,47 @@ app.get('/api/tickets', async (req, res) => {
   }
 });
 
+// GET: Single Ticket by ID (Citizen Complaint Tracking)
+app.get('/api/tickets/:id', async (req, res) => {
+  const { id } = req.params;
+  const cleanId = String(id).replace(/^#/, '').trim();
+  const numericId = parseInt(cleanId, 10);
+
+  if (isNaN(numericId)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid Ticket ID format. Please enter a valid numeric ticket ID (e.g. 4821).'
+    });
+  }
+
+  try {
+    if (isPgConnected && pgPool) {
+      const result = await pgPool.query('SELECT * FROM tickets WHERE id = $1', [numericId]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: `Complaint #${numericId} was not found in municipal records. Please verify your reference number.`
+        });
+      }
+      return res.json({ success: true, ticket: result.rows[0] });
+    }
+
+    // In-Memory search
+    const found = inMemoryTickets.find((t) => t.id === numericId);
+    if (!found) {
+      return res.status(404).json({
+        success: false,
+        error: `Complaint #${numericId} was not found in municipal records. Please verify your reference number.`
+      });
+    }
+
+    return res.json({ success: true, ticket: found });
+  } catch (err) {
+    console.error(`Error fetching ticket #${id}:`, err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST: Citizen submits issue (Chat / Voice entry)
 app.post('/api/tickets', async (req, res) => {
   const { description, location_name, latitude, longitude } = req.body;
@@ -581,38 +642,27 @@ app.post('/api/tickets', async (req, res) => {
   }
 });
 
-// PATCH: Human-in-the-loop override queue (Deletes problem if status is RESOLVED)
+// PATCH: Human-in-the-loop override queue (Updates status, urgency, department & resolution notes)
 app.patch('/api/tickets/:id/override', async (req, res) => {
   const { id } = req.params;
-  const { urgency, department, status } = req.body;
+  const cleanId = String(id).replace(/^#/, '').trim();
+  const numericId = parseInt(cleanId, 10);
+  const { urgency, department, status, resolution_notes } = req.body;
 
   try {
-    // If problem is marked RESOLVED, delete it from storage
-    if (status === 'RESOLVED') {
-      if (isPgConnected && pgPool) {
-        const delRes = await pgPool.query('DELETE FROM tickets WHERE id = $1 RETURNING *', [id]);
-        if (delRes.rows.length === 0) {
-          return res.status(404).json({ error: 'Ticket not found' });
-        }
-        return res.json({ success: true, deleted: true, id: Number(id), message: 'Ticket resolved and deleted' });
-      }
-
-      const targetIdx = inMemoryTickets.findIndex((t) => t.id === Number(id));
-      if (targetIdx === -1) {
-        return res.status(404).json({ error: 'Ticket not found' });
-      }
-      const deletedTicket = inMemoryTickets.splice(targetIdx, 1)[0];
-      return res.json({ success: true, deleted: true, id: Number(id), message: 'Ticket resolved and deleted', ticket: deletedTicket });
-    }
+    const isResolved = status === 'RESOLVED';
+    const nowIso = new Date().toISOString();
 
     if (isPgConnected && pgPool) {
       const updated = await pgPool.query(
         `UPDATE tickets 
          SET urgency = COALESCE($1, urgency),
              department = COALESCE($2, department),
-             status = COALESCE($3, status)
-         WHERE id = $4 RETURNING *`,
-        [urgency, department, status, id]
+             status = COALESCE($3, status),
+             resolved_at = CASE WHEN $3 = 'RESOLVED' THEN NOW() ELSE resolved_at END,
+             resolution_notes = COALESCE($4, resolution_notes)
+         WHERE id = $5 RETURNING *`,
+        [urgency, department, status, resolution_notes, numericId]
       );
       if (updated.rows.length === 0) {
         return res.status(404).json({ error: 'Ticket not found' });
@@ -621,13 +671,20 @@ app.patch('/api/tickets/:id/override', async (req, res) => {
     }
 
     // In-Memory update
-    const target = inMemoryTickets.find((t) => t.id === Number(id));
+    const target = inMemoryTickets.find((t) => t.id === numericId);
     if (!target) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
     if (urgency) target.urgency = urgency;
     if (department) target.department = department;
-    if (status) target.status = status;
+    if (status) {
+      target.status = status;
+      if (isResolved) {
+        target.resolved_at = target.resolved_at || nowIso;
+        target.resolution_notes = resolution_notes || target.resolution_notes || 'Incident inspected and confirmed resolved by municipal command.';
+      }
+    }
+    if (resolution_notes) target.resolution_notes = resolution_notes;
 
     res.json(target);
   } catch (err) {
