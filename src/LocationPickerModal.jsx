@@ -62,17 +62,17 @@ export default function LocationPickerModal({
         maxZoom: 19
       }).addTo(map);
 
-      // Custom pulsing pin for picked location
+      // Custom steady pin for picked location
       const pinIcon = L.divIcon({
         className: 'picker-geo-pin',
         html: `
-          <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;">
-            <div style="position: absolute; width: 28px; height: 28px; background: rgba(2, 132, 199, 0.35); border-radius: 50%; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-            <div style="position: relative; width: 18px; height: 18px; background: #0284c7; border: 2.5px solid #ffffff; border-radius: 50%; box-shadow: 0 3px 8px rgba(0,0,0,0.3);"></div>
+          <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">
+            <div style="position: absolute; width: 24px; height: 24px; background: rgba(2, 132, 199, 0.2); border-radius: 50%;"></div>
+            <div style="position: relative; width: 14px; height: 14px; background: #0284c7; border: 2.5px solid #ffffff; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.25);"></div>
           </div>
         `,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14]
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
       });
 
       const marker = L.marker([startLat, startLng], {

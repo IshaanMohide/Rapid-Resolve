@@ -85,8 +85,6 @@ export default function CommandCenter({
   const turnaroundChartRef = useRef(null);
   const chartInstances = useRef({});
 
-  // Clock state
-  const [clockTime, setClockTime] = useState({ t: '', d: '' });
   const [selectedWard, setSelectedWard] = useState(null);
 
   // Login Form States (if not authenticated)
@@ -105,24 +103,9 @@ export default function CommandCenter({
   const [overrideDepartment, setOverrideDepartment] = useState('Roads & Infrastructure');
   const [overrideStatus, setOverrideStatus] = useState('OPEN');
 
-  // Digital Clock updates
-  useEffect(() => {
-    const updateClock = () => {
-      const now = new Date();
-      setClockTime({
-        t: now.toLocaleTimeString('en-US', { hour12: true }),
-        d: now.toLocaleDateString('en-US', {
-          weekday: 'short',
-          month: 'short',
-          day: '2-digit',
-          year: 'numeric'
-        })
-      });
-    };
-    updateClock();
-    const timer = setInterval(updateClock, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const handleSelectWard = (name) => {
+    setSelectedWard(name);
+  };
 
   // Handle Login submission
   const handleLoginSubmit = async (e) => {
@@ -590,7 +573,7 @@ export default function CommandCenter({
               <SambhajiNagarMap
                 tickets={tickets}
                 selectedWard={selectedWard}
-                onSelectWard={(name) => setSelectedWard(name)}
+                onSelectWard={handleSelectWard}
               />
             </div>
           </div>
