@@ -90,6 +90,50 @@ function calculateSLARemaining(slaDeadline, status) {
   }
 }
 
+// 3-State Problem Resolution Helper: SOLVED, GOING ON, or NOT SOLVED
+export function getProblemStatus(status) {
+  if (status === 'RESOLVED') {
+    return {
+      key: 'SOLVED',
+      label: 'SOLVED',
+      headline: 'Problem Solved & Verified',
+      shortText: 'The issue has been completely fixed and verified by municipal supervisors.',
+      badgeBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60 shadow-emerald-500/20',
+      heroBg: 'from-emerald-950/70 via-slate-900 to-emerald-950/40 border-emerald-600/50',
+      cardBg: 'bg-emerald-950/50 border-emerald-500/50 text-emerald-200 shadow-lg shadow-emerald-900/20',
+      dotColor: 'bg-emerald-400',
+      icon: 'check'
+    };
+  }
+  if (status === 'IN_PROGRESS' || status === 'DISPATCHED') {
+    return {
+      key: 'GOING_ON',
+      label: 'GOING ON',
+      headline: status === 'DISPATCHED' ? 'Work Going On: Field Units Dispatched' : 'Work Going On: Active Ground Repairs',
+      shortText: status === 'DISPATCHED'
+        ? 'Field emergency units and division crew are dispatched and actively moving to the site.'
+        : 'Crews and repair equipment are actively on site performing resolution work.',
+      badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-amber-500/20',
+      heroBg: 'from-amber-950/60 via-slate-900 to-amber-950/30 border-amber-600/50',
+      cardBg: 'bg-amber-950/50 border-amber-500/50 text-amber-200 shadow-lg shadow-amber-900/20',
+      dotColor: 'bg-amber-400 animate-ping',
+      icon: 'progress'
+    };
+  }
+  // Default: OPEN / Queued
+  return {
+    key: 'NOT_SOLVED',
+    label: 'NOT SOLVED',
+    headline: 'Problem Not Solved (Pending Action)',
+    shortText: 'Complaint is registered in municipal queue. Awaiting department crew allocation and dispatch.',
+    badgeBg: 'bg-rose-500/20 text-rose-300 border-rose-500/60 shadow-rose-500/20',
+    heroBg: 'from-rose-950/60 via-slate-900 to-slate-900 border-rose-600/50',
+    cardBg: 'bg-rose-950/50 border-rose-500/50 text-rose-200 shadow-lg shadow-rose-900/20',
+    dotColor: 'bg-rose-400',
+    icon: 'pending'
+  };
+}
+
 // Helper to determine active step index based on ticket status
 function getStepIndex(status) {
   switch (status) {
@@ -211,6 +255,7 @@ export default function ComplaintTracker({
   const slaInfo = activeTicket
     ? calculateSLARemaining(activeTicket.sla_deadline, activeTicket.status)
     : null;
+  const problemStatus = activeTicket ? getProblemStatus(activeTicket.status) : null;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-300">
@@ -268,47 +313,64 @@ export default function ComplaintTracker({
             </button>
           </form>
 
-          {/* Quick Recent / Seed Ticket Chips */}
+          {/* Quick Problem Status Test Chips */}
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-slate-400 flex items-center gap-1 font-medium">
-              <History className="w-3 h-3 text-slate-400" />
-              Recent Cases:
+            <span className="text-slate-400 flex items-center gap-1 font-semibold">
+              <History className="w-3.5 h-3.5 text-slate-400" />
+              Check Status:
             </span>
-            {recentTicketIds.length > 0 ? (
-              recentTicketIds.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => {
-                    setSearchId(String(id));
-                    fetchTicketById(id);
-                  }}
-                  className={`px-2.5 py-1 rounded-lg border font-mono transition ${
-                    activeTicket?.id === id
-                      ? 'bg-blue-600/30 border-blue-500/60 text-blue-300 font-bold'
-                      : 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-300'
-                  }`}
-                >
-                  #{id}
-                </button>
-              ))
-            ) : (
-              <>
-                {[4821, 4822, 4823, 4820].map((sampleId) => (
-                  <button
-                    key={sampleId}
-                    type="button"
-                    onClick={() => {
-                      setSearchId(String(sampleId));
-                      fetchTicketById(sampleId);
-                    }}
-                    className="bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-300 px-2.5 py-1 rounded-lg font-mono transition"
-                  >
-                    #{sampleId}
-                  </button>
-                ))}
-              </>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSearchId('4820');
+                fetchTicketById(4820);
+              }}
+              className="bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-500/60 text-emerald-300 px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span>#4820: SOLVED</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchId('4821');
+                fetchTicketById(4821);
+              }}
+              className="bg-amber-950/70 hover:bg-amber-900/90 border border-amber-500/60 text-amber-300 px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span>#4821: GOING ON</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchId('4823');
+                fetchTicketById(4823);
+              }}
+              className="bg-rose-950/70 hover:bg-rose-900/90 border border-rose-500/60 text-rose-300 px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+            >
+              <span className="w-2 h-2 rounded-full bg-rose-400" />
+              <span>#4823: NOT SOLVED</span>
+            </button>
+
+            {/* Other recently tracked ticket IDs */}
+            {recentTicketIds.filter(id => ![4820, 4821, 4823].includes(id)).map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  setSearchId(String(id));
+                  fetchTicketById(id);
+                }}
+                className={`px-2.5 py-1 rounded-lg border font-mono transition ${
+                  activeTicket?.id === id
+                    ? 'bg-blue-600/30 border-blue-500/60 text-blue-300 font-bold'
+                    : 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-300'
+                }`}
+              >
+                #{id}
+              </button>
+            ))}
           </div>
         </div>
         <div className="absolute -right-12 -bottom-12 w-48 h-48 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
@@ -340,30 +402,14 @@ export default function ComplaintTracker({
                     Ticket #{activeTicket.id}
                   </h2>
 
-                  {/* Status Badge */}
+                  {/* 3-State Problem Status Badge (SOLVED, GOING ON, or NOT SOLVED) */}
                   <span
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
-                      activeTicket.status === 'RESOLVED'
-                        ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50'
-                        : activeTicket.status === 'DISPATCHED'
-                        ? 'bg-red-950/90 text-red-300 border-red-500/50 animate-pulse'
-                        : activeTicket.status === 'IN_PROGRESS'
-                        ? 'bg-amber-950/90 text-amber-300 border-amber-500/50'
-                        : 'bg-blue-950/90 text-blue-300 border-blue-500/50'
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider border shadow-sm ${
+                      problemStatus.badgeBg
                     }`}
                   >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        activeTicket.status === 'RESOLVED'
-                          ? 'bg-emerald-400'
-                          : activeTicket.status === 'DISPATCHED'
-                          ? 'bg-red-400 animate-ping'
-                          : activeTicket.status === 'IN_PROGRESS'
-                          ? 'bg-amber-400'
-                          : 'bg-blue-400'
-                      }`}
-                    />
-                    <span>{activeTicket.status || 'OPEN'}</span>
+                    <span className={`w-2.5 h-2.5 rounded-full ${problemStatus.dotColor}`} />
+                    <span>STATUS: {problemStatus.label}</span>
                   </span>
 
                   {/* Urgency Badge */}
@@ -407,6 +453,120 @@ export default function ComplaintTracker({
                   <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                   <span>Refresh</span>
                 </button>
+              </div>
+            </div>
+
+            {/* 3-State Problem Resolution Visual Pillar Overview */}
+            <div className="bg-slate-950/70 border border-slate-800/90 rounded-2xl p-4 sm:p-5 space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase font-extrabold tracking-wider text-slate-400">
+                    Municipal Problem Status:
+                  </span>
+                  <span className={`text-xs px-3 py-0.5 rounded-full font-black uppercase tracking-wider border ${problemStatus.badgeBg}`}>
+                    ● {problemStatus.label}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  <span>Real-time Municipal Status Indicator</span>
+                </div>
+              </div>
+
+              {/* 3 Side-by-Side Status Blocks */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* 1. NOT SOLVED */}
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    problemStatus.key === 'NOT_SOLVED'
+                      ? 'bg-rose-950/60 border-rose-500 text-rose-200 shadow-lg shadow-rose-950/50 ring-2 ring-rose-500/40'
+                      : 'bg-slate-900/40 border-slate-800 text-slate-500 opacity-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-black tracking-wider uppercase flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${problemStatus.key === 'NOT_SOLVED' ? 'bg-rose-400' : 'bg-slate-600'}`} />
+                      NOT SOLVED
+                    </span>
+                    {problemStatus.key === 'NOT_SOLVED' && (
+                      <span className="text-[10px] bg-rose-500 text-white font-black px-1.5 py-0.2 rounded-full">
+                        ACTIVE STATE
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    Complaint registered in municipal queue. Awaiting field deployment.
+                  </p>
+                </div>
+
+                {/* 2. GOING ON */}
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    problemStatus.key === 'GOING_ON'
+                      ? 'bg-amber-950/60 border-amber-500 text-amber-200 shadow-lg shadow-amber-950/50 ring-2 ring-amber-500/40'
+                      : 'bg-slate-900/40 border-slate-800 text-slate-500 opacity-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-black tracking-wider uppercase flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${problemStatus.key === 'GOING_ON' ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}`} />
+                      GOING ON
+                    </span>
+                    {problemStatus.key === 'GOING_ON' && (
+                      <span className="text-[10px] bg-amber-500 text-slate-950 font-black px-1.5 py-0.2 rounded-full">
+                        ACTIVE STATE
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    Work in progress. Field emergency units & repair teams active on site.
+                  </p>
+                </div>
+
+                {/* 3. SOLVED */}
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    problemStatus.key === 'SOLVED'
+                      ? 'bg-emerald-950/60 border-emerald-500 text-emerald-200 shadow-lg shadow-emerald-950/50 ring-2 ring-emerald-500/40'
+                      : 'bg-slate-900/40 border-slate-800 text-slate-500 opacity-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-black tracking-wider uppercase flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${problemStatus.key === 'SOLVED' ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                      SOLVED
+                    </span>
+                    {problemStatus.key === 'SOLVED' && (
+                      <span className="text-[10px] bg-emerald-500 text-white font-black px-1.5 py-0.2 rounded-full">
+                        ACTIVE STATE
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    Problem completely resolved, inspected, and verified by command.
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Banner Details */}
+              <div className={`p-3.5 rounded-xl border flex items-center gap-3 text-xs ${problemStatus.cardBg}`}>
+                <div className="w-8 h-8 rounded-lg bg-black/20 flex items-center justify-center flex-shrink-0">
+                  {problemStatus.key === 'SOLVED' ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  ) : problemStatus.key === 'GOING_ON' ? (
+                    <RefreshCw className="w-5 h-5 text-amber-400 animate-spin" />
+                  ) : (
+                    <Clock className="w-5 h-5 text-rose-400" />
+                  )}
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm">
+                    {problemStatus.headline}
+                  </div>
+                  <div className="text-slate-200/90 text-xs">
+                    {problemStatus.shortText}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -717,26 +877,39 @@ export default function ComplaintTracker({
             </p>
           </div>
 
-          <div className="pt-2 flex justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setSearchId('4821');
-                fetchTicketById(4821);
-              }}
-              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3.5 py-2 rounded-xl transition"
-            >
-              Demo: Track #4821 (In Progress)
-            </button>
+          <div className="pt-2 flex flex-wrap justify-center gap-3">
             <button
               type="button"
               onClick={() => {
                 setSearchId('4820');
                 fetchTicketById(4820);
               }}
-              className="text-xs bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 px-3.5 py-2 rounded-xl transition"
+              className="text-xs bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/60 text-emerald-300 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition shadow-md"
             >
-              Demo: Track #4820 (Resolved)
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>See SOLVED Case (#4820)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchId('4821');
+                fetchTicketById(4821);
+              }}
+              className="text-xs bg-amber-950/70 hover:bg-amber-900 border border-amber-500/60 text-amber-300 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition shadow-md"
+            >
+              <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
+              <span>See GOING ON Case (#4821)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchId('4823');
+                fetchTicketById(4823);
+              }}
+              className="text-xs bg-rose-950/70 hover:bg-rose-900 border border-rose-500/60 text-rose-300 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition shadow-md"
+            >
+              <Clock className="w-4 h-4 text-rose-400" />
+              <span>See NOT SOLVED Case (#4823)</span>
             </button>
           </div>
         </div>

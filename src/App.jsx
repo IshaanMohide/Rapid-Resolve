@@ -613,7 +613,40 @@ export default function App() {
 
                         {/* Ticket Triage Card if generated */}
                         {m.ticket && (
-                          <div className="mt-3 pt-3 border-t border-slate-700/80 space-y-2">
+                          <div className="mt-3 pt-3 border-t border-slate-700/80 space-y-2.5">
+                            {/* Prominent 3-State Problem Status Indicator */}
+                            <div className="flex items-center justify-between gap-2 bg-slate-900/90 border border-slate-700/80 rounded-xl px-3 py-1.5">
+                              <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
+                                Problem Status:
+                              </span>
+                              <span
+                                className={`text-xs px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider border flex items-center gap-1.5 shadow-sm ${
+                                  m.ticket.status === 'RESOLVED'
+                                    ? 'bg-emerald-950 text-emerald-300 border-emerald-500/60'
+                                    : m.ticket.status === 'IN_PROGRESS' || m.ticket.status === 'DISPATCHED'
+                                    ? 'bg-amber-950 text-amber-300 border-amber-500/60'
+                                    : 'bg-rose-950 text-rose-300 border-rose-500/60'
+                                }`}
+                              >
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    m.ticket.status === 'RESOLVED'
+                                      ? 'bg-emerald-400'
+                                      : m.ticket.status === 'IN_PROGRESS' || m.ticket.status === 'DISPATCHED'
+                                      ? 'bg-amber-400 animate-ping'
+                                      : 'bg-rose-400'
+                                  }`}
+                                />
+                                <span>
+                                  {m.ticket.status === 'RESOLVED'
+                                    ? 'SOLVED'
+                                    : m.ticket.status === 'IN_PROGRESS' || m.ticket.status === 'DISPATCHED'
+                                    ? 'GOING ON'
+                                    : 'NOT SOLVED'}
+                                </span>
+                              </span>
+                            </div>
+
                             <div className="flex flex-wrap gap-2 items-center">
                               <span
                                 className={`text-xs px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
