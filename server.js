@@ -14,7 +14,8 @@ import {
   createUser, getUserByEmail, verifyUserPassword,
   getAdminByAdminId, verifyAdminPassword,
   getAllTickets, getTicketById, createTicket, updateTicket, deleteTicket,
-  createFeedback, getFeedbackForTicket, getAverageFeedbackRating, getAllFeedback
+  createFeedback, getFeedbackForTicket, getAverageFeedbackRating, getAllFeedback,
+  syncFeedbackToCSV, CSV_PATH
 } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -688,6 +689,22 @@ app.get('/api/feedback', (req, res) => {
   } catch (err) {
     console.error('Feedback fetch all error:', err.message);
     return res.status(500).json({ success: false, error: 'Failed to retrieve all feedback.' });
+  }
+});
+
+// GET: Export all customer feedback as an Excel-ready CSV spreadsheet
+app.get('/api/feedback/export', (req, res) => {
+  try {
+    const csvFile = syncFeedbackToCSV();
+    if (csvFile && fs.existsSync(csvFile)) {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="RapidResolve_Customer_Feedback.csv"');
+      return res.sendFile(csvFile);
+    }
+    return res.status(500).json({ success: false, error: 'Could not generate feedback export file.' });
+  } catch (err) {
+    console.error('Feedback export error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

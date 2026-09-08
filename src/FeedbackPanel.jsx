@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Star, Send, MessageSquare, AlertTriangle, CheckCircle2,
-  ThumbsUp, User
+  ThumbsUp, User, FileText
 } from 'lucide-react';
 
 const API_BASE = '/api';
@@ -121,13 +121,24 @@ export default function FeedbackPanel({ ticketId, ticketStatus }) {
             <p className="text-[11px] text-slate-500">Rate your experience with this complaint resolution</p>
           </div>
         </div>
-        {avgRating !== null && (
-          <div className="flex items-center gap-2 bg-white border border-amber-200 px-3 py-1.5 rounded-xl">
-            <StarRating rating={Math.round(avgRating)} interactive={false} size="sm" />
-            <span className="text-xs font-bold text-amber-800">{avgRating}</span>
-            <span className="text-[10px] text-slate-500">({totalFeedback})</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {avgRating !== null && (
+            <div className="flex items-center gap-2 bg-white border border-amber-200 px-3 py-1.5 rounded-xl">
+              <StarRating rating={Math.round(avgRating)} interactive={false} size="sm" />
+              <span className="text-xs font-bold text-amber-800">{avgRating}</span>
+              <span className="text-[10px] text-slate-500">({totalFeedback})</span>
+            </div>
+          )}
+          <a
+            href="/api/feedback/export"
+            download="RapidResolve_Customer_Feedback.csv"
+            className="inline-flex items-center gap-1 bg-white hover:bg-amber-100/60 border border-amber-200 text-amber-900 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition shadow-2xs hover:scale-105"
+            title="Download feedback records spreadsheet (Excel / CSV)"
+          >
+            <FileText className="w-3.5 h-3.5 text-amber-700" />
+            <span className="hidden sm:inline">Excel / CSV</span>
+          </a>
+        </div>
       </div>
 
       <div className="p-5 space-y-5">

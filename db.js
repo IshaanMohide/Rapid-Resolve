@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 
@@ -7,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DB_PATH = path.join(__dirname, 'rapidresolve.db');
+export const CSV_PATH = path.join(__dirname, 'feedback_records.csv');
 
 let db;
 
@@ -17,6 +19,7 @@ export function getDB() {
     db.pragma('foreign_keys = ON');
     initSchema();
     seedDefaults();
+    syncFeedbackToCSV();
   }
   return db;
 }
@@ -313,7 +316,9 @@ export function createFeedback(ticketId, userId, rating, comment) {
     'INSERT INTO feedback (ticket_id, user_id, rating, comment) VALUES (?, ?, ?, ?)'
   );
   const result = stmt.run(ticketId, userId || null, rating, comment || null);
-  return db.prepare('SELECT * FROM feedback WHERE id = ?').get(result.lastInsertRowid);
+  const created = db.prepare('SELECT * FROM feedback WHERE id = ?').get(result.lastInsertRowid);
+  syncFeedbackToCSV();
+  return created;
 }
 
 export function getFeedbackForTicket(ticketId) {
@@ -341,5 +346,64 @@ export function getAllFeedback() {
     LEFT JOIN tickets t ON f.ticket_id = t.id
     ORDER BY f.created_at DESC
   `).all();
+}
+
+export function syncFeedbackToCSV() {
+  try {
+    const feedbackRows = getAllFeedback();
+    const headers = [
+      'Feedback ID',
+      'Ticket ID',
+      'Incident Category',
+      'Municipal Department',
+      'Star Rating (1-5)',
+      'Rating Sentiment',
+      'Citizen Name',
+      'Citizen Email',
+      'Citizen Feedback Comment',
+      'Date Submitted'
+    ];
+
+    const escapeCSV = (val) => {
+      if (val === null || val === undefined) return '""';
+      const s = String(val).replace(/"/g, '""');
+      return `"${s}"`;
+    };
+
+    const getSentiment = (rating) => {
+      switch (Number(rating)) {
+        case 5: return 'Excellent';
+        case 4: return 'Very Good';
+        case 3: return 'Good';
+        case 2: return 'Fair';
+        case 1: return 'Poor';
+        default: return 'Unrated';
+      }
+    };
+
+    const lines = [
+      headers.map(escapeCSV).join(','),
+      ...feedbackRows.map(row => [
+        row.id,
+        row.ticket_id,
+        row.ticket_category || 'General Municipal Issue',
+        row.ticket_department || 'Municipal Works',
+        row.rating,
+        getSentiment(row.rating),
+        row.user_name || 'Anonymous Citizen',
+        row.user_email || 'N/A',
+        row.comment || '',
+        row.created_at
+      ].map(escapeCSV).join(','))
+    ];
+
+    // Prepend UTF-8 BOM so Microsoft Excel directly opens with correct formatting
+    fs.writeFileSync(CSV_PATH, '\uFEFF' + lines.join('\r\n'), 'utf8');
+    console.log(`📊 Synchronized ${feedbackRows.length} feedback record(s) to ${CSV_PATH}`);
+    return CSV_PATH;
+  } catch (err) {
+    console.error('Error syncing feedback to CSV:', err.message);
+    return null;
+  }
 }
 

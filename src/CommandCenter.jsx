@@ -740,6 +740,16 @@ export default function CommandCenter({
                   </button>
                 ))}
               </div>
+
+              <a
+                href="/api/feedback/export"
+                download="RapidResolve_Customer_Feedback.csv"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold rounded-lg text-xs transition shadow-xs hover:scale-105 active:scale-95"
+                title="Download all customer feedback as an Excel / CSV spreadsheet"
+              >
+                <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Export Feedback (Excel)</span>
+              </a>
             </div>
           </div>
 
@@ -1048,7 +1058,16 @@ export default function CommandCenter({
               )}
             </div>
 
-            <div className="pt-2 flex justify-end">
+            <div className="pt-2 flex items-center justify-between">
+              <a
+                href="/api/feedback/export"
+                download="RapidResolve_Customer_Feedback.csv"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold rounded-xl text-xs transition shadow-xs hover:scale-105"
+                title="Download complete feedback database as Excel/CSV spreadsheet"
+              >
+                <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Export Excel / CSV</span>
+              </a>
               <button
                 onClick={() => {
                   setFeedbackModalTicket(null);
