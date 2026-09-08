@@ -229,7 +229,15 @@ export function verifyAdminPassword(admin, password) {
 // Ticket CRUD
 // -----------------------------------------------------------------------------
 export function getAllTickets() {
-  return db.prepare('SELECT * FROM tickets ORDER BY created_at DESC').all();
+  return db.prepare(`
+    SELECT t.*,
+           ROUND(AVG(f.rating), 1) as avg_rating,
+           COUNT(f.id) as feedback_count
+    FROM tickets t
+    LEFT JOIN feedback f ON t.id = f.ticket_id
+    GROUP BY t.id
+    ORDER BY t.created_at DESC
+  `).all();
 }
 
 export function getTicketById(id) {
@@ -324,3 +332,14 @@ export function getAverageFeedbackRating(ticketId) {
   ).get(ticketId);
   return { avgRating: result.avg_rating ? Math.round(result.avg_rating * 10) / 10 : null, total: result.total };
 }
+
+export function getAllFeedback() {
+  return db.prepare(`
+    SELECT f.*, u.name as user_name, u.email as user_email, t.description as ticket_description, t.category as ticket_category, t.department as ticket_department
+    FROM feedback f
+    LEFT JOIN users u ON f.user_id = u.id
+    LEFT JOIN tickets t ON f.ticket_id = t.id
+    ORDER BY f.created_at DESC
+  `).all();
+}
+

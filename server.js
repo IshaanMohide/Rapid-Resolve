@@ -14,7 +14,7 @@ import {
   createUser, getUserByEmail, verifyUserPassword,
   getAdminByAdminId, verifyAdminPassword,
   getAllTickets, getTicketById, createTicket, updateTicket, deleteTicket,
-  createFeedback, getFeedbackForTicket, getAverageFeedbackRating
+  createFeedback, getFeedbackForTicket, getAverageFeedbackRating, getAllFeedback
 } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -678,6 +678,16 @@ app.get('/api/tickets/:id/feedback', (req, res) => {
   } catch (err) {
     console.error('Feedback fetch error:', err.message);
     return res.status(500).json({ success: false, error: 'Failed to retrieve feedback.' });
+  }
+});
+
+app.get('/api/feedback', (req, res) => {
+  try {
+    const feedback = getAllFeedback();
+    return res.json({ success: true, feedback });
+  } catch (err) {
+    console.error('Feedback fetch all error:', err.message);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve all feedback.' });
   }
 });
 

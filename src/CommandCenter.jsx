@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as echarts from 'echarts';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import {
   ShieldAlert,
   Radio,
@@ -24,7 +25,11 @@ import {
   X,
   Check,
   Trash2,
-  FileText
+  FileText,
+  Star,
+  MessageSquare,
+  ThumbsUp,
+  User
 } from 'lucide-react';
 import SambhajiNagarMap from './SambhajiNagarMap';
 
@@ -104,6 +109,27 @@ export default function CommandCenter({
   const [overrideUrgency, setOverrideUrgency] = useState('MEDIUM');
   const [overrideDepartment, setOverrideDepartment] = useState('Roads & Infrastructure');
   const [overrideStatus, setOverrideStatus] = useState('OPEN');
+
+  // Citizen Feedback Inspection Modal State
+  const [feedbackModalTicket, setFeedbackModalTicket] = useState(null);
+  const [ticketFeedbackList, setTicketFeedbackList] = useState([]);
+  const [loadingFeedback, setLoadingFeedback] = useState(false);
+
+  const openFeedbackModal = async (ticket) => {
+    setFeedbackModalTicket(ticket);
+    setLoadingFeedback(true);
+    try {
+      const res = await axios.get(`/api/tickets/${ticket.id}/feedback`);
+      if (res.data?.success) {
+        setTicketFeedbackList(res.data.feedback || []);
+      }
+    } catch (err) {
+      console.error('Failed to load feedback for ticket:', err);
+      setTicketFeedbackList([]);
+    } finally {
+      setLoadingFeedback(false);
+    }
+  };
 
   const handleSelectWard = useCallback((name) => {
     setSelectedWard(name);
@@ -728,13 +754,14 @@ export default function CommandCenter({
                   <th className="py-3 px-4">Department & Category</th>
                   <th className="py-3 px-4">Location</th>
                   <th className="py-3 px-4">Description</th>
+                  <th className="py-3 px-4">Citizen Feedback</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredTickets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-400 font-medium">
+                    <td colSpan={8} className="text-center py-8 text-slate-400 font-medium">
                       No complaints match the current filter.
                     </td>
                   </tr>
@@ -797,6 +824,21 @@ export default function CommandCenter({
                         </td>
                         <td className="py-3 px-4 max-w-xs truncate text-slate-600" title={t.description}>
                           {t.description}
+                        </td>
+                        <td className="py-3 px-4">
+                          {t.feedback_count > 0 ? (
+                            <button
+                              onClick={() => openFeedbackModal(t)}
+                              className="inline-flex items-center gap-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-bold px-2 py-0.5 rounded-full text-[11px] transition shadow-xs hover:scale-105 active:scale-95"
+                              title="Click to view citizen feedback & comments"
+                            >
+                              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                              <span>{t.avg_rating}</span>
+                              <span className="text-amber-700 font-normal">({t.feedback_count})</span>
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">No feedback yet</span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
@@ -916,6 +958,106 @@ export default function CommandCenter({
                   Save Override
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Citizen Feedback Inspection Modal */}
+      {feedbackModalTicket && (
+        <div className="fixed inset-0 z-[999] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 anim-fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 anim-scale-in">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 border border-amber-200 flex items-center justify-center">
+                  <Star className="w-4 h-4 text-amber-600 fill-amber-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">
+                    Citizen Feedback — Complaint #{feedbackModalTicket.id}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {feedbackModalTicket.department} • {feedbackModalTicket.category}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setFeedbackModalTicket(null);
+                  setTicketFeedbackList([]);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 space-y-1">
+              <div className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                Reported Complaint
+              </div>
+              <div>{feedbackModalTicket.description}</div>
+            </div>
+
+            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+              {loadingFeedback ? (
+                <div className="flex justify-center py-6">
+                  <div className="w-6 h-6 border-2 border-slate-200 border-t-amber-500 rounded-full animate-spin" />
+                </div>
+              ) : ticketFeedbackList.length === 0 ? (
+                <div className="text-center py-6 text-slate-400 text-xs">
+                  No feedback reviews recorded yet for this complaint.
+                </div>
+              ) : (
+                ticketFeedbackList.map((fb, idx) => (
+                  <div
+                    key={fb.id || idx}
+                    className="bg-amber-50/40 border border-amber-200/80 rounded-xl p-3.5 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-[10px] font-bold">
+                          {fb.user_name ? fb.user_name.charAt(0).toUpperCase() : <User className="w-3 h-3" />}
+                        </div>
+                        <div>
+                          <span className="text-xs font-semibold text-slate-900">
+                            {fb.user_name || 'Anonymous Citizen'}
+                          </span>
+                          {fb.user_email && (
+                            <span className="text-[10px] text-slate-400 ml-1.5 font-mono">
+                              ({fb.user_email})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 bg-white border border-amber-200 px-2 py-0.5 rounded-md">
+                        <Star className="w-3 h-3 text-amber-500 fill-amber-400" />
+                        <span className="text-xs font-bold text-amber-900">{fb.rating}/5</span>
+                      </div>
+                    </div>
+                    {fb.comment && (
+                      <p className="text-xs text-slate-700 italic pl-8">
+                        "{fb.comment}"
+                      </p>
+                    )}
+                    <div className="text-[10px] text-slate-400 pl-8">
+                      Submitted on: {new Date(fb.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => {
+                  setFeedbackModalTicket(null);
+                  setTicketFeedbackList([]);
+                }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
