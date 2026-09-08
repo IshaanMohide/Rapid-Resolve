@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as echarts from 'echarts';
+import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert,
   Radio,
@@ -84,6 +85,7 @@ export default function CommandCenter({
   const velocityChartRef = useRef(null);
   const turnaroundChartRef = useRef(null);
   const chartInstances = useRef({});
+  const navigate = useNavigate();
 
   const [selectedWard, setSelectedWard] = useState(null);
 
@@ -304,8 +306,8 @@ export default function CommandCenter({
   // IF NOT AUTHENTICATED: Show clean light login card
   if (!isAdminAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-xl p-6 sm:p-8">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 anim-fade-in">
+        <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-xl p-6 sm:p-8 anim-scale-in">
           <div className="flex items-center justify-center mb-5">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-blue-700 flex items-center justify-center text-white shadow-lg shadow-sky-500/25">
               <Lock className="w-7 h-7" />
@@ -386,6 +388,12 @@ export default function CommandCenter({
             >
               ← Return to Citizen Desk
             </button>
+            <a
+              href="/"
+              className="text-[11px] text-slate-400 hover:text-slate-600 font-medium transition block mt-1"
+            >
+              ← Go to Public Citizen Portal
+            </a>
           </div>
         </div>
       </div>
@@ -421,14 +429,14 @@ export default function CommandCenter({
           {/* Navigation View Switcher */}
           <div className="flex bg-slate-100 border border-slate-200 p-1 rounded-xl shadow-inner">
             <button
-              onClick={() => onTabChange('citizen')}
+              onClick={() => { onTabChange('citizen'); navigate('/'); }}
               className="px-3.5 py-1.5 text-xs font-bold rounded-lg transition text-slate-600 hover:text-slate-900 flex items-center gap-1.5"
             >
               <Radio className="w-3.5 h-3.5 text-slate-500" />
               <span>Citizen AI Desk</span>
             </button>
             <button
-              onClick={() => onTabChange('track')}
+              onClick={() => { onTabChange('track'); navigate('/'); }}
               className="px-3.5 py-1.5 text-xs font-bold rounded-lg transition text-slate-600 hover:text-slate-900 flex items-center gap-1.5"
             >
               <Search className="w-3.5 h-3.5 text-slate-500" />
@@ -464,7 +472,7 @@ export default function CommandCenter({
       {/* Top 5-Card Municipal KPI Bar */}
       <section className="px-4 lg:px-8 py-4 max-w-[1780px] w-full mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
-          <div className="csn-kpi">
+          <div className="csn-kpi anim-fade-in-up" style={{ animationDelay: '0s' }}>
             <div className="label">Active Grievances</div>
             <div className="val">{tickets.length || 48}<u>cases</u></div>
             <div className="text-xs font-semibold text-emerald-600 flex items-center gap-1 mt-1">
@@ -472,7 +480,7 @@ export default function CommandCenter({
             </div>
           </div>
 
-          <div className="csn-kpi">
+          <div className="csn-kpi anim-fade-in-up" style={{ animationDelay: '0.05s' }}>
             <div className="label">Critical Triage</div>
             <div className="val text-rose-600">
               {tickets.filter(t => t.urgency === 'CRITICAL').length || 3}<u>urgent</u>

@@ -4,11 +4,18 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import pg from 'pg';
-const { Pool } = pg;
+import bcrypt from 'bcryptjs';
 import Anthropic from '@anthropic-ai/sdk';
 import twilio from 'twilio';
 import axios from 'axios';
+
+import {
+  getDB,
+  createUser, getUserByEmail, verifyUserPassword,
+  getAdminByAdminId, verifyAdminPassword,
+  getAllTickets, getTicketById, createTicket, updateTicket, deleteTicket,
+  createFeedback, getFeedbackForTicket, getAverageFeedbackRating
+} from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,140 +25,10 @@ app.use(cors());
 app.use(express.json());
 
 // -----------------------------------------------------------------------------
-// Database Layer: PostgreSQL with automatic in-memory fallback
+// Initialize SQLite Database
 // -----------------------------------------------------------------------------
-let isPgConnected = false;
-let pgPool = null;
-
-// In-Memory Seed Storage (used as fallback or when PG is not configured)
-let nextTicketId = 4825;
-const inMemoryTickets = [
-  {
-    id: 4820,
-    description: 'Fallen storm tree branch obstructing municipal park pedestrian walkway',
-    category: 'Parks, Trees & Horticulture',
-    urgency: 'LOW',
-    department: 'Parks, Trees & Horticulture',
-    location_name: 'Central City Park, Gate 4',
-    latitude: 19.8740,
-    longitude: 75.3410,
-    sla_deadline: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-    is_emergency: false,
-    status: 'RESOLVED',
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    resolved_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    resolution_notes: 'Horticulture quick-response unit cleared the fallen timber and reopened pedestrian path.'
-  },
-  {
-    id: 4821,
-    description: 'High-pressure water pipeline rupture flooding arterial road',
-    category: 'Water Supply',
-    urgency: 'HIGH',
-    department: 'Municipal Works',
-    location_name: 'Sector 5, Crossroad 3',
-    latitude: 19.8762,
-    longitude: 75.3433,
-    sla_deadline: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    is_emergency: false,
-    status: 'IN_PROGRESS',
-    created_at: new Date(Date.now() - 45 * 60 * 1000).toISOString()
-  },
-  {
-    id: 4822,
-    description: 'Transformer explosion with active electrical sparks near primary school',
-    category: 'Electricity',
-    urgency: 'CRITICAL',
-    department: 'Emergency Response',
-    location_name: 'Shivaji Square, Sector 8',
-    latitude: 19.8820,
-    longitude: 75.3500,
-    sla_deadline: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-    is_emergency: true,
-    status: 'DISPATCHED',
-    created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString()
-  },
-  {
-    id: 4823,
-    description: 'Severe structural pothole causing recurring motorcycle collisions',
-    category: 'Roads',
-    urgency: 'MEDIUM',
-    department: 'Traffic & Safety',
-    location_name: 'Ring Road Bypass',
-    latitude: 19.8690,
-    longitude: 75.3380,
-    sla_deadline: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
-    is_emergency: false,
-    status: 'OPEN',
-    created_at: new Date(Date.now() - 120 * 60 * 1000).toISOString()
-  },
-  {
-    id: 4824,
-    description: 'Illegal toxic chemical dumping behind community health clinic',
-    category: 'Sanitation',
-    urgency: 'HIGH',
-    department: 'Public Health',
-    location_name: 'Industrial Area Zone 2',
-    latitude: 19.8910,
-    longitude: 75.3620,
-    sla_deadline: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
-    is_emergency: false,
-    status: 'OPEN',
-    created_at: new Date(Date.now() - 90 * 60 * 1000).toISOString()
-  }
-];
-
-if (process.env.DATABASE_URL) {
-  try {
-    pgPool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      connectionTimeoutMillis: 3000
-    });
-    // Test connection
-    pgPool.query('SELECT NOW()', (err) => {
-      if (err) {
-        console.warn('⚠️  PostgreSQL connection unavailable. Switching seamlessly to In-Memory DB mode.');
-        isPgConnected = false;
-      } else {
-        isPgConnected = true;
-        console.log('✅ PostgreSQL connected successfully.');
-        initPgSchema();
-      }
-    });
-  } catch (err) {
-    console.warn('⚠️  Failed to initialize PostgreSQL pool:', err.message);
-  }
-} else {
-  console.log('ℹ️  No DATABASE_URL provided. Rapid Resolve running with resilient In-Memory store.');
-}
-
-async function initPgSchema() {
-  if (!pgPool || !isPgConnected) return;
-  try {
-    await pgPool.query(`
-      CREATE TABLE IF NOT EXISTS tickets (
-        id SERIAL PRIMARY KEY,
-        description TEXT NOT NULL,
-        category VARCHAR(50),
-        urgency VARCHAR(20),
-        department VARCHAR(100),
-        location_name VARCHAR(255),
-        latitude NUMERIC,
-        longitude NUMERIC,
-        sla_deadline TIMESTAMP,
-        is_emergency BOOLEAN DEFAULT FALSE,
-        status VARCHAR(50) DEFAULT 'OPEN',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        resolved_at TIMESTAMP,
-        resolution_notes TEXT
-      );
-      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;
-      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS resolution_notes TEXT;
-    `);
-    console.log('✅ PostgreSQL schema verified.');
-  } catch (err) {
-    console.error('Error initializing PostgreSQL schema:', err.message);
-  }
-}
+const db = getDB();
+console.log('✅ SQLite Database connected and ready.');
 
 // -----------------------------------------------------------------------------
 // AI & SMS Clients Setup with Graceful Fallbacks
@@ -174,29 +51,6 @@ if (
   }
 }
 
-// -----------------------------------------------------------------------------
-// Admin Authentication (Credentials stored in admin_credentials.json)
-// -----------------------------------------------------------------------------
-const CREDENTIALS_FILE = path.join(__dirname, 'admin_credentials.json');
-
-function getAdminCredentials() {
-  try {
-    if (fs.existsSync(CREDENTIALS_FILE)) {
-      const data = fs.readFileSync(CREDENTIALS_FILE, 'utf-8');
-      return JSON.parse(data);
-    }
-  } catch (err) {
-    console.warn('Error reading admin credentials file:', err.message);
-  }
-  return {
-    adminId: 'admin',
-    password: 'rapidresolve2026',
-    role: 'Chief Incident Commander',
-    department: 'Rapid Resolve Unified Command Center'
-  };
-}
-
-// -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 // Google Gemini AI Triage Engine (Uses Gemini API Key to assign urgency & department)
 // -----------------------------------------------------------------------------
@@ -362,7 +216,7 @@ Citizen Report: "${description}"`;
       is_emergency: true
     };
   }
-  // High urgency (Note: flood has been moved to CRITICAL above)
+  // High urgency
   if (text.match(/leak|burst|water supply|pipeline|drinking water|sewage overflow/)) {
     return {
       category: 'Water Supply',
@@ -453,45 +307,132 @@ async function dispatchEmergencyNotification(ticket) {
 
 // Health & Diagnostic Endpoint
 app.get('/api/health', (req, res) => {
+  const ticketCount = db.prepare('SELECT COUNT(*) as cnt FROM tickets').get();
+  const userCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
   res.json({
     status: 'online',
     timestamp: new Date().toISOString(),
-    database: isPgConnected ? 'PostgreSQL' : 'In-Memory Resilient Store',
+    database: 'SQLite (Real-Time Persistent)',
     aiEngine: geminiApiKey ? 'Google Gemini 3.6 Flash (Live API)' : (anthropicClient ? 'Claude 3 Haiku' : 'Local Heuristic Rule Engine'),
     smsDispatch: twilioClient ? 'Twilio Live' : 'Console Simulation',
-    ticketCount: isPgConnected ? null : inMemoryTickets.length
+    ticketCount: ticketCount.cnt,
+    userCount: userCount.cnt
   });
 });
 
-// Admin Login Endpoint
+// -----------------------------------------------------------------------------
+// Citizen Auth Endpoints (Signup / Login / Verify)
+// -----------------------------------------------------------------------------
+app.post('/api/auth/signup', (req, res) => {
+  const { name, email, password, phone } = req.body;
+  if (!name || !email || !password) {
+    return res.status(400).json({ success: false, error: 'Name, email, and password are required.' });
+  }
+
+  try {
+    const existing = getUserByEmail(email.trim());
+    if (existing) {
+      return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
+    }
+
+    const user = createUser(name.trim(), email.trim(), password, phone?.trim());
+    console.log(`✅ New citizen registered: ${user.name} (${user.email})`);
+    return res.status(201).json({ success: true, user });
+  } catch (err) {
+    console.error('Signup error:', err.message);
+    return res.status(500).json({ success: false, error: 'Registration failed. Please try again.' });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ success: false, error: 'Email and password are required.' });
+  }
+
+  try {
+    const user = getUserByEmail(email.trim());
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Invalid email or password.' });
+    }
+
+    if (!verifyUserPassword(user, password)) {
+      return res.status(401).json({ success: false, error: 'Invalid email or password.' });
+    }
+
+    const sessionToken = Buffer.from(`citizen:${user.id}:${Date.now()}:${Math.random()}`).toString('base64');
+    console.log(`✅ Citizen logged in: ${user.name} (${user.email})`);
+    return res.json({
+      success: true,
+      token: sessionToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone
+      }
+    });
+  } catch (err) {
+    console.error('Login error:', err.message);
+    return res.status(500).json({ success: false, error: 'Login failed.' });
+  }
+});
+
+app.post('/api/auth/verify', (req, res) => {
+  const { token } = req.body;
+  if (!token) {
+    return res.status(401).json({ success: false, error: 'No token provided' });
+  }
+  // Decode token to get user ID
+  try {
+    const decoded = Buffer.from(token, 'base64').toString();
+    const parts = decoded.split(':');
+    if (parts[0] === 'citizen' && parts[1]) {
+      const userId = parseInt(parts[1], 10);
+      const stmt = db.prepare('SELECT id, name, email, phone FROM users WHERE id = ?');
+      const user = stmt.get(userId);
+      if (user) {
+        return res.json({ success: true, user });
+      }
+    }
+  } catch {}
+  return res.status(401).json({ success: false, error: 'Invalid token' });
+});
+
+// -----------------------------------------------------------------------------
+// Admin Authentication
+// -----------------------------------------------------------------------------
 app.post('/api/admin/login', (req, res) => {
   const { adminId, password } = req.body;
   if (!adminId || !password) {
     return res.status(400).json({ success: false, error: 'Admin ID and password are required' });
   }
 
-  const credentials = getAdminCredentials();
+  try {
+    const admin = getAdminByAdminId(adminId.trim());
+    if (!admin) {
+      return res.status(401).json({ success: false, error: 'Invalid Admin ID or Password.' });
+    }
 
-  if (
-    adminId.trim() === credentials.adminId.trim() &&
-    password.trim() === credentials.password.trim()
-  ) {
-    const sessionToken = Buffer.from(`${credentials.adminId}:${Date.now()}:${Math.random()}`).toString('base64');
+    if (!verifyAdminPassword(admin, password.trim())) {
+      return res.status(401).json({ success: false, error: 'Invalid Admin ID or Password.' });
+    }
+
+    const sessionToken = Buffer.from(`admin:${admin.id}:${Date.now()}:${Math.random()}`).toString('base64');
+    console.log(`✅ Admin logged in: ${admin.admin_id} (${admin.role})`);
     return res.json({
       success: true,
       token: sessionToken,
       user: {
-        adminId: credentials.adminId,
-        role: credentials.role || 'Chief Incident Commander',
-        department: credentials.department || 'Rapid Resolve Unified Command Center'
+        adminId: admin.admin_id,
+        role: admin.role,
+        department: admin.department
       }
     });
+  } catch (err) {
+    console.error('Admin login error:', err.message);
+    return res.status(500).json({ success: false, error: 'Authentication failed.' });
   }
-
-  return res.status(401).json({
-    success: false,
-    error: 'Invalid Admin ID or Password. Please check admin_credentials.json.'
-  });
 });
 
 // Admin Token Verification Endpoint
@@ -500,15 +441,25 @@ app.post('/api/admin/verify', (req, res) => {
   if (!token) {
     return res.status(401).json({ success: false, error: 'No token provided' });
   }
-  const credentials = getAdminCredentials();
-  return res.json({
-    success: true,
-    user: {
-      adminId: credentials.adminId,
-      role: credentials.role || 'Chief Incident Commander',
-      department: credentials.department || 'Rapid Resolve Unified Command Center'
+  try {
+    const decoded = Buffer.from(token, 'base64').toString();
+    const parts = decoded.split(':');
+    if (parts[0] === 'admin' && parts[1]) {
+      const adminDbId = parseInt(parts[1], 10);
+      const admin = db.prepare('SELECT admin_id, role, department FROM admins WHERE id = ?').get(adminDbId);
+      if (admin) {
+        return res.json({
+          success: true,
+          user: {
+            adminId: admin.admin_id,
+            role: admin.role,
+            department: admin.department
+          }
+        });
+      }
     }
-  });
+  } catch {}
+  return res.status(401).json({ success: false, error: 'Invalid admin token' });
 });
 
 // -----------------------------------------------------------------------------
@@ -526,8 +477,9 @@ app.get('/api/events', (req, res) => {
   sseClients.add(res);
 
   // Initial connection handshake
+  const allTickets = getAllTickets();
   res.write(`event: connected\ndata: ${JSON.stringify({ time: new Date().toISOString() })}\n\n`);
-  res.write(`event: initial\ndata: ${JSON.stringify(inMemoryTickets)}\n\n`);
+  res.write(`event: initial\ndata: ${JSON.stringify(allTickets)}\n\n`);
 
   const keepAlive = setInterval(() => {
     try {
@@ -559,15 +511,10 @@ function broadcastEvent(eventType, payload) {
 }
 
 // GET: All Tickets
-app.get('/api/tickets', async (req, res) => {
+app.get('/api/tickets', (req, res) => {
   try {
-    if (isPgConnected && pgPool) {
-      const tickets = await pgPool.query('SELECT * FROM tickets ORDER BY created_at DESC');
-      return res.json(tickets.rows);
-    }
-    // Return in-memory tickets (sorted newest first)
-    const sorted = [...inMemoryTickets].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    res.json(sorted);
+    const tickets = getAllTickets();
+    res.json(tickets);
   } catch (err) {
     console.error('Error fetching tickets:', err);
     res.status(500).json({ error: err.message });
@@ -575,7 +522,7 @@ app.get('/api/tickets', async (req, res) => {
 });
 
 // GET: Single Ticket by ID (Citizen Complaint Tracking)
-app.get('/api/tickets/:id', async (req, res) => {
+app.get('/api/tickets/:id', (req, res) => {
   const { id } = req.params;
   const cleanId = String(id).replace(/^#/, '').trim();
   const numericId = parseInt(cleanId, 10);
@@ -588,26 +535,13 @@ app.get('/api/tickets/:id', async (req, res) => {
   }
 
   try {
-    if (isPgConnected && pgPool) {
-      const result = await pgPool.query('SELECT * FROM tickets WHERE id = $1', [numericId]);
-      if (result.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: `Complaint #${numericId} was not found in municipal records. Please verify your reference number.`
-        });
-      }
-      return res.json({ success: true, ticket: result.rows[0] });
-    }
-
-    // In-Memory search
-    const found = inMemoryTickets.find((t) => t.id === numericId);
+    const found = getTicketById(numericId);
     if (!found) {
       return res.status(404).json({
         success: false,
         error: `Complaint #${numericId} was not found in municipal records. Please verify your reference number.`
       });
     }
-
     return res.json({ success: true, ticket: found });
   } catch (err) {
     console.error(`Error fetching ticket #${id}:`, err);
@@ -617,7 +551,7 @@ app.get('/api/tickets/:id', async (req, res) => {
 
 // POST: Citizen submits issue (Chat / Voice entry)
 app.post('/api/tickets', async (req, res) => {
-  const { description, location_name, latitude, longitude } = req.body;
+  const { description, location_name, latitude, longitude, user_id } = req.body;
 
   if (!description || !description.trim()) {
     return res.status(400).json({ error: 'Description is required' });
@@ -630,7 +564,7 @@ app.post('/api/tickets', async (req, res) => {
     // 2. SLA Timer Calculation
     const slaDeadline = new Date(Date.now() + triage.sla_hours * 60 * 60 * 1000);
 
-    // 3. Resolve Geolocation: Use manual coordinates if provided, else safe civic zone fallback
+    // 3. Resolve Geolocation
     const resolvedLat = (latitude !== undefined && latitude !== null && !isNaN(Number(latitude)))
       ? Number(latitude)
       : (19.8762 + (Math.random() - 0.5) * 0.02);
@@ -638,44 +572,20 @@ app.post('/api/tickets', async (req, res) => {
       ? Number(longitude)
       : (75.3433 + (Math.random() - 0.5) * 0.02);
 
-    let ticket = null;
-
-    if (isPgConnected && pgPool) {
-      const result = await pgPool.query(
-        `INSERT INTO tickets 
-        (description, category, urgency, department, location_name, latitude, longitude, sla_deadline, is_emergency)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-        [
-          description,
-          triage.category,
-          triage.urgency,
-          triage.department,
-          location_name || 'Civic Zone Marker',
-          resolvedLat,
-          resolvedLng,
-          slaDeadline,
-          triage.is_emergency
-        ]
-      );
-      ticket = result.rows[0];
-    } else {
-      // In-Memory store
-      ticket = {
-        id: nextTicketId++,
-        description,
-        category: triage.category,
-        urgency: triage.urgency,
-        department: triage.department,
-        location_name: location_name || 'Civic Zone Marker',
-        latitude: resolvedLat,
-        longitude: resolvedLng,
-        sla_deadline: slaDeadline.toISOString(),
-        is_emergency: triage.is_emergency,
-        status: 'OPEN',
-        created_at: new Date().toISOString()
-      };
-      inMemoryTickets.unshift(ticket);
-    }
+    const ticket = createTicket({
+      user_id: user_id || null,
+      description,
+      category: triage.category,
+      urgency: triage.urgency,
+      department: triage.department,
+      location_name: location_name || 'Civic Zone Marker',
+      latitude: resolvedLat,
+      longitude: resolvedLng,
+      sla_deadline: slaDeadline.toISOString(),
+      is_emergency: triage.is_emergency,
+      status: triage.is_emergency ? 'DISPATCHED' : 'OPEN',
+      created_at: new Date().toISOString()
+    });
 
     // 3. Emergency Bypass Path: Instant SMS Escalation
     if (ticket.urgency === 'CRITICAL' || ticket.is_emergency) {
@@ -692,80 +602,82 @@ app.post('/api/tickets', async (req, res) => {
   }
 });
 
-// PATCH: Human-in-the-loop override queue (Updates status, urgency, department & resolution notes)
-app.patch('/api/tickets/:id/override', async (req, res) => {
+// PATCH: Human-in-the-loop override queue
+app.patch('/api/tickets/:id/override', (req, res) => {
   const { id } = req.params;
   const cleanId = String(id).replace(/^#/, '').trim();
   const numericId = parseInt(cleanId, 10);
   const { urgency, department, status, resolution_notes } = req.body;
 
   try {
-    const isResolved = status === 'RESOLVED';
-    const nowIso = new Date().toISOString();
-
-    if (isPgConnected && pgPool) {
-      const updated = await pgPool.query(
-        `UPDATE tickets 
-         SET urgency = COALESCE($1, urgency),
-             department = COALESCE($2, department),
-             status = COALESCE($3, status),
-             resolved_at = CASE WHEN $3 = 'RESOLVED' THEN NOW() ELSE resolved_at END,
-             resolution_notes = COALESCE($4, resolution_notes)
-         WHERE id = $5 RETURNING *`,
-        [urgency, department, status, resolution_notes, numericId]
-      );
-      if (updated.rows.length === 0) {
-        return res.status(404).json({ error: 'Ticket not found' });
-      }
-      broadcastEvent('ticket_updated', updated.rows[0]);
-      return res.json(updated.rows[0]);
-    }
-
-    // In-Memory update
-    const target = inMemoryTickets.find((t) => t.id === numericId);
-    if (!target) {
+    const updated = updateTicket(numericId, { urgency, department, status, resolution_notes });
+    if (!updated) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
-    if (urgency) target.urgency = urgency;
-    if (department) target.department = department;
-    if (status) {
-      target.status = status;
-      if (isResolved) {
-        target.resolved_at = target.resolved_at || nowIso;
-        target.resolution_notes = resolution_notes || target.resolution_notes || 'Incident inspected and confirmed resolved by municipal command.';
-      }
-    }
-    if (resolution_notes) target.resolution_notes = resolution_notes;
-
-    broadcastEvent('ticket_updated', target);
-    res.json(target);
+    broadcastEvent('ticket_updated', updated);
+    return res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // DELETE: Delete a problem/ticket
-app.delete('/api/tickets/:id', async (req, res) => {
+app.delete('/api/tickets/:id', (req, res) => {
   const { id } = req.params;
   try {
-    if (isPgConnected && pgPool) {
-      const result = await pgPool.query('DELETE FROM tickets WHERE id = $1 RETURNING *', [id]);
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Ticket not found' });
-      }
-      broadcastEvent('ticket_deleted', { id: Number(id) });
-      return res.json({ success: true, deleted: true, id: Number(id) });
-    }
-
-    const targetIdx = inMemoryTickets.findIndex((t) => t.id === Number(id));
-    if (targetIdx === -1) {
+    const removed = deleteTicket(Number(id));
+    if (!removed) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
-    const removedTicket = inMemoryTickets.splice(targetIdx, 1)[0];
     broadcastEvent('ticket_deleted', { id: Number(id) });
-    res.json({ success: true, deleted: true, id: Number(id), ticket: removedTicket });
+    res.json({ success: true, deleted: true, id: Number(id), ticket: removed });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Feedback Endpoints
+// -----------------------------------------------------------------------------
+app.post('/api/tickets/:id/feedback', (req, res) => {
+  const ticketId = parseInt(req.params.id, 10);
+  const { rating, comment, user_id } = req.body;
+
+  if (isNaN(ticketId)) {
+    return res.status(400).json({ success: false, error: 'Invalid ticket ID.' });
+  }
+  if (!rating || rating < 1 || rating > 5) {
+    return res.status(400).json({ success: false, error: 'Rating must be between 1 and 5.' });
+  }
+
+  try {
+    const ticket = getTicketById(ticketId);
+    if (!ticket) {
+      return res.status(404).json({ success: false, error: 'Ticket not found.' });
+    }
+
+    const feedback = createFeedback(ticketId, user_id || null, rating, comment);
+    console.log(`✅ Feedback added for Ticket #${ticketId}: ${rating} stars`);
+    return res.status(201).json({ success: true, feedback });
+  } catch (err) {
+    console.error('Feedback error:', err.message);
+    return res.status(500).json({ success: false, error: 'Failed to submit feedback.' });
+  }
+});
+
+app.get('/api/tickets/:id/feedback', (req, res) => {
+  const ticketId = parseInt(req.params.id, 10);
+  if (isNaN(ticketId)) {
+    return res.status(400).json({ success: false, error: 'Invalid ticket ID.' });
+  }
+
+  try {
+    const feedback = getFeedbackForTicket(ticketId);
+    const { avgRating, total } = getAverageFeedbackRating(ticketId);
+    return res.json({ success: true, feedback, avgRating, total });
+  } catch (err) {
+    console.error('Feedback fetch error:', err.message);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve feedback.' });
   }
 });
 
@@ -813,6 +725,7 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
     console.log(`🚀 Rapid Resolve Unified Server running on http://${HOST}:${PORT}`);
     console.log(`📡 Healthcheck: http://${HOST}:${PORT}/api/health`);
     console.log(`📋 Tickets API: http://${HOST}:${PORT}/api/tickets`);
+    console.log(`🗄️  Database: SQLite (rapidresolve.db)`);
     console.log(`======================================================\n`);
   });
 }

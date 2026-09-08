@@ -22,3 +22,12 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+rapidresolve.db*
+
+# Scratch & temporary
+scratch/

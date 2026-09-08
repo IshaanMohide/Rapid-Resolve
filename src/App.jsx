@@ -17,16 +17,15 @@ import {
   Sparkles,
   Zap,
   Check,
-  Lock,
-  Unlock,
-  LogOut,
   Map,
   Search,
-  Trash2
+  User,
+  LogOut,
+  UserPlus
 } from 'lucide-react';
 import LocationPickerModal from './LocationPickerModal';
 import ComplaintTracker from './ComplaintTracker';
-import CommandCenter from './CommandCenter';
+import AuthModal from './AuthModal';
 import { ErrorBoundary } from './ErrorBoundary';
 
 // Relative API base connects seamlessly in both Vite proxy dev and Express unified production
@@ -135,20 +134,18 @@ function triageClientSide(description, locationName, coords) {
 }
 
 export default function App() {
-  // Navigation tabs: 'citizen', 'track', or 'admin' (command deck & admin merged into 'admin')
+  // Navigation tabs: 'citizen' or 'track' (admin is now at /admin URL)
   const [activeTab, setActiveTab] = useState('citizen');
   const [trackedTicketId, setTrackedTicketId] = useState('');
   const [tickets, setTickets] = useState([]);
   const [health, setHealth] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Admin Authentication State
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
-    return !!sessionStorage.getItem('rapidresolve_admin_token');
-  });
-  const [adminUser, setAdminUser] = useState(() => {
+  // Citizen Auth State
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [citizenUser, setCitizenUser] = useState(() => {
     try {
-      const stored = sessionStorage.getItem('rapidresolve_admin_user');
+      const stored = sessionStorage.getItem('rapidresolve_user');
       return stored ? JSON.parse(stored) : null;
     } catch {
       return null;
@@ -233,7 +230,7 @@ export default function App() {
       const res = await axios.get(`${API_BASE}/health`);
       setHealth(res.data);
     } catch {
-      setHealth({ status: 'online', database: 'In-Memory Resilient Store', aiEngine: 'Local Heuristic Engine' });
+      setHealth({ status: 'online', database: 'SQLite (Persistent)', aiEngine: 'Local Heuristic Engine' });
     }
   };
 
@@ -270,7 +267,8 @@ export default function App() {
           description: currentText,
           location_name: selectedLocation,
           latitude: selectedCoords.lat,
-          longitude: selectedCoords.lng
+          longitude: selectedCoords.lng,
+          user_id: citizenUser?.id || null
         },
         { timeout: 7000 }
       );
@@ -325,144 +323,33 @@ export default function App() {
     if (coords) setSelectedCoords(coords);
   };
 
-  // Switch tabs: 'command' automatically redirects to 'admin' (unified deck)
   const handleTabSwitch = (tab) => {
-    if (tab === 'command' || tab === 'admin') {
-      setActiveTab('admin');
-    } else if (tab === 'track') {
+    if (tab === 'track') {
       setActiveTab('track');
     } else {
       setActiveTab('citizen');
     }
   };
 
-  // Direct login called from CommandCenter
-  const handleAdminLoginDirect = async (adminId, password) => {
-    try {
-      const res = await axios.post(
-        `${API_BASE}/admin/login`,
-        { adminId: adminId.trim(), password: password.trim() },
-        { timeout: 5000 }
-      );
-      if (res.data?.success) {
-        sessionStorage.setItem('rapidresolve_admin_token', res.data.token);
-        sessionStorage.setItem('rapidresolve_admin_user', JSON.stringify(res.data.user));
-        setIsAdminAuthenticated(true);
-        setAdminUser(res.data.user);
-        return true;
-      }
-    } catch (err) {
-      if (adminId.trim() === 'admin' && password.trim() === 'rapidresolve2026') {
-        const defaultUser = {
-          adminId: 'admin',
-          role: 'Chief Incident Commander',
-          department: 'Chhatrapati Sambhaji Nagar Municipal Command Center'
-        };
-        sessionStorage.setItem('rapidresolve_admin_token', 'local-offline-token');
-        sessionStorage.setItem('rapidresolve_admin_user', JSON.stringify(defaultUser));
-        setIsAdminAuthenticated(true);
-        setAdminUser(defaultUser);
-        return true;
-      }
-      return false;
-    }
-    return false;
+  const handleCitizenLogout = () => {
+    sessionStorage.removeItem('rapidresolve_user_token');
+    sessionStorage.removeItem('rapidresolve_user');
+    setCitizenUser(null);
   };
 
-  const handleAdminLogout = () => {
-    sessionStorage.removeItem('rapidresolve_admin_token');
-    sessionStorage.removeItem('rapidresolve_admin_user');
-    setIsAdminAuthenticated(false);
-    setAdminUser(null);
-    setActiveTab('citizen');
-  };
-
-  const handleSaveOverride = async (updatedTicket) => {
-    if (!updatedTicket) return;
-    try {
-      const res = await axios.patch(`${API_BASE}/tickets/${updatedTicket.id}/override`, {
-        urgency: updatedTicket.urgency,
-        department: updatedTicket.department,
-        status: updatedTicket.status
-      }, { timeout: 4000 });
-      if (res.data && res.data.id) {
-        setTickets((prev) => prev.map((t) => (t.id === res.data.id ? res.data : t)));
-      } else {
-        setTickets((prev) => prev.map((t) => (t.id === updatedTicket.id ? updatedTicket : t)));
-      }
-    } catch (err) {
-      console.warn('Saving override locally:', err.message);
-      setTickets((prev) => prev.map((t) => (t.id === updatedTicket.id ? updatedTicket : t)));
-    }
-  };
-
-  const handleResolveTicket = async (ticket) => {
-    try {
-      const res = await axios.patch(`${API_BASE}/tickets/${ticket.id}/override`, {
-        status: 'RESOLVED',
-        resolution_notes: 'Marked verified & resolved by municipal command center.'
-      }, { timeout: 4000 });
-      if (res.data && res.data.id) {
-        setTickets((prev) => prev.map((t) => (t.id === res.data.id ? res.data : t)));
-      } else {
-        setTickets((prev) => prev.map((t) => (t.id === ticket.id ? {
-          ...t,
-          status: 'RESOLVED',
-          resolved_at: new Date().toISOString(),
-          resolution_notes: 'Marked verified & resolved by municipal command center.'
-        } : t)));
-      }
-    } catch (err) {
-      console.warn('Resolving locally:', err.message);
-      setTickets((prev) => prev.map((t) => (t.id === ticket.id ? {
-        ...t,
-        status: 'RESOLVED',
-        resolved_at: new Date().toISOString(),
-        resolution_notes: 'Marked verified & resolved by municipal command center.'
-      } : t)));
-    }
-  };
-
-  const handleDeleteTicket = async (ticketId) => {
-    if (!window.confirm(`Are you sure you want to delete Incident #${ticketId}?`)) return;
-    try {
-      await axios.delete(`${API_BASE}/tickets/${ticketId}`, { timeout: 4000 });
-      setTickets((prev) => prev.filter((t) => t.id !== ticketId));
-    } catch (err) {
-      console.warn('Deleting locally:', err.message);
-      setTickets((prev) => prev.filter((t) => t.id !== ticketId));
-    }
+  const handleAuthSuccess = (user, token) => {
+    setCitizenUser(user);
   };
 
   const safeTickets = Array.isArray(tickets) ? tickets : [];
-  const criticalCount = safeTickets.filter((t) => t.urgency === 'CRITICAL' || t.is_emergency).length;
-
-  // IF ADMIN TAB IS ACTIVE: Render Unified Command Deck + Incident Console
-  if (activeTab === 'admin') {
-    return (
-      <ErrorBoundary fallbackTitle="Admin Command Center Error">
-        <CommandCenter
-          activeTab={activeTab}
-          onTabChange={handleTabSwitch}
-          tickets={safeTickets}
-          onResolveTicket={handleResolveTicket}
-          onOverrideTicket={handleSaveOverride}
-          onDeleteTicket={handleDeleteTicket}
-          isAdminAuthenticated={isAdminAuthenticated}
-          onAdminLogin={handleAdminLoginDirect}
-          onAdminLogout={handleAdminLogout}
-        />
-      </ErrorBoundary>
-    );
-  }
 
   return (
     <ErrorBoundary fallbackTitle="Rapid Resolve Application Error">
       <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
         {/* Top Navigation Bar (Clean Light Theme) */}
-        <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 px-4 sm:px-8 py-3 flex flex-wrap justify-between items-center gap-4 shadow-xs">
+        <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 px-4 sm:px-8 py-3 flex flex-wrap justify-between items-center gap-4 shadow-xs anim-slide-down">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-blue-700 flex items-center justify-center shadow-md shadow-sky-500/20 text-white">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-blue-700 flex items-center justify-center shadow-md shadow-sky-500/20 text-white anim-glow-pulse">
               <ShieldAlert className="w-5 h-5" />
             </div>
             <div>
@@ -493,52 +380,61 @@ export default function App() {
             </div>
           </div>
 
-          {/* View Switcher Tabs (3 Distinct Light Views: Citizen AI Desk, Track Complaint, Admin Command Center) */}
-          <div className="flex bg-slate-100 border border-slate-200 rounded-xl p-1 shadow-inner">
-            <button
-              onClick={() => handleTabSwitch('citizen')}
-              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
-                activeTab === 'citizen'
-                  ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              <Radio className="w-4 h-4 text-sky-600" />
-              <span>Citizen AI Desk</span>
-            </button>
+          {/* Right: Auth + Tab Switcher */}
+          <div className="flex items-center gap-3">
+            {/* User Auth */}
+            {citizenUser ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-xl text-xs">
+                  <div className="w-5 h-5 rounded-full bg-sky-600 text-white flex items-center justify-center text-[10px] font-bold">
+                    {citizenUser.name?.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="font-semibold text-emerald-800 hidden sm:inline">{citizenUser.name}</span>
+                </div>
+                <button
+                  onClick={handleCitizenLogout}
+                  className="text-slate-400 hover:text-rose-600 transition p-1"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 px-3 py-1.5 rounded-xl text-xs font-bold transition hover:-translate-y-0.5 active:translate-y-0"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Sign Up / Login</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => handleTabSwitch('track')}
-              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
-                activeTab === 'track'
-                  ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              <Search className="w-4 h-4 text-sky-600" />
-              <span>Track Complaint</span>
-            </button>
+            {/* View Switcher Tabs */}
+            <div className="flex bg-slate-100 border border-slate-200 rounded-xl p-1 shadow-inner">
+              <button
+                onClick={() => handleTabSwitch('citizen')}
+                className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
+                  activeTab === 'citizen'
+                    ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <Radio className="w-4 h-4 text-sky-600" />
+                <span>Citizen AI Desk</span>
+              </button>
 
-            <button
-              onClick={() => handleTabSwitch('admin')}
-              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
-                activeTab === 'admin'
-                  ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              {isAdminAuthenticated ? (
-                <Unlock className="w-4 h-4 text-emerald-600" />
-              ) : (
-                <Lock className="w-4 h-4 text-amber-600" />
-              )}
-              <span>Admin Command Center</span>
-              {criticalCount > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                  {criticalCount}
-                </span>
-              )}
-            </button>
+              <button
+                onClick={() => handleTabSwitch('track')}
+                className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center gap-1.5 sm:gap-2 ${
+                  activeTab === 'track'
+                    ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <Search className="w-4 h-4 text-sky-600" />
+                <span>Track Complaint</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -550,7 +446,7 @@ export default function App() {
             /* ================================================================= */
             <div className="max-w-3xl mx-auto space-y-5">
               {/* Greeting Hero Banner */}
-              <div className="bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-700 rounded-2xl p-6 shadow-md text-white relative overflow-hidden">
+              <div className="bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-700 rounded-2xl p-6 shadow-md text-white relative overflow-hidden anim-fade-in-up anim-gradient-shift">
                 <div className="relative z-10">
                   <h1 className="text-2xl font-extrabold mb-1.5 flex items-center gap-2">
                     <span>Report Civic Grievances & Emergencies</span>
@@ -559,11 +455,12 @@ export default function App() {
                     Chhatrapati Sambhaji Nagar Municipal Corporation. Rapid Resolve AI evaluates urgency, triggers automated SMS dispatch on critical emergencies, and enforces municipal SLA timelines.
                   </p>
                 </div>
-                <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+                <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-white/10 rounded-full blur-2xl pointer-events-none anim-float" />
+                <div className="absolute -left-6 -top-6 w-24 h-24 bg-white/5 rounded-full blur-xl pointer-events-none anim-float-slow" />
               </div>
 
               {/* Quick Tracking Access Banner */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap justify-between items-center gap-3 shadow-xs">
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap justify-between items-center gap-3 shadow-xs anim-fade-in-up" style={{ animationDelay: '0.1s' }}>
                 <div className="flex items-center gap-2.5 text-xs text-slate-700">
                   <div className="w-7 h-7 rounded-lg bg-sky-100 border border-sky-200 flex items-center justify-center text-sky-700">
                     <Search className="w-3.5 h-3.5" />
@@ -573,14 +470,14 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('track')}
-                  className="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 px-3.5 py-1.5 rounded-xl text-xs font-bold transition"
+                  className="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 px-3.5 py-1.5 rounded-xl text-xs font-bold transition hover:-translate-y-0.5 active:translate-y-0"
                 >
                   <span>Track Complaint Now ➔</span>
                 </button>
               </div>
 
               {/* Interactive Chat Console (Light Theme) */}
-              <div className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden flex flex-col h-[580px]">
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden flex flex-col h-[580px] anim-fade-in-up" style={{ animationDelay: '0.15s' }}>
                 {/* Chat Header */}
                 <div className="bg-slate-50 px-5 py-3.5 border-b border-slate-200 flex justify-between items-center">
                   <div className="flex items-center gap-3">
@@ -606,10 +503,11 @@ export default function App() {
                   {messages.map((m, idx) => (
                     <div
                       key={idx}
-                      className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                      className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'} anim-fade-in-up`}
+                      style={{ animationDelay: `${idx * 0.05}s` }}
                     >
                       <div
-                        className={`rounded-2xl px-4 py-3 max-w-[85%] text-sm leading-relaxed shadow-sm ${
+                        className={`rounded-2xl px-4 py-3 max-w-[85%] text-sm leading-relaxed shadow-sm transition-all hover:shadow-md ${
                           m.sender === 'user'
                             ? 'bg-sky-600 text-white shadow-sky-600/20'
                             : 'bg-white text-slate-800 border border-slate-200'
@@ -619,7 +517,7 @@ export default function App() {
 
                         {/* Ticket Triage Card if generated */}
                         {m.ticket && (
-                          <div className="mt-3 pt-3 border-t border-slate-200 space-y-2.5">
+                          <div className="mt-3 pt-3 border-t border-slate-200 space-y-2.5 anim-fade-in">
                             {/* Prominent 3-State Problem Status Indicator */}
                             <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
                               <span className="text-[11px] text-slate-600 font-bold uppercase tracking-wider">
@@ -688,7 +586,7 @@ export default function App() {
                             </div>
 
                             {m.ticket.urgency === 'CRITICAL' && (
-                              <div className="mt-2.5 bg-rose-50 border border-rose-200 text-rose-800 p-2.5 rounded-xl text-xs space-y-1.5">
+                              <div className="mt-2.5 bg-rose-50 border border-rose-200 text-rose-800 p-2.5 rounded-xl text-xs space-y-1.5 anim-fade-in">
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-1.5 font-bold text-rose-800">
                                     <PhoneCall className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
@@ -712,7 +610,7 @@ export default function App() {
                                   setTrackedTicketId(m.ticket.id);
                                   setActiveTab('track');
                                 }}
-                                className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm"
+                                className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm hover:-translate-y-0.5 active:translate-y-0"
                               >
                                 <Search className="w-3.5 h-3.5" />
                                 <span>Track Live Status ➔</span>
@@ -725,7 +623,7 @@ export default function App() {
                   ))}
 
                   {loading && (
-                    <div className="flex justify-start">
+                    <div className="flex justify-start anim-fade-in">
                       <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-600 flex items-center gap-2 shadow-xs">
                         <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-600" />
                         <span>Rapid Resolve AI is classifying incident & assigning SLA in Sambhaji Nagar grid...</span>
@@ -737,41 +635,23 @@ export default function App() {
                 {/* Quick Prompt Chips (Chhatrapati Sambhaji Nagar Locations) */}
                 <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 flex gap-2 overflow-x-auto text-xs">
                   <span className="text-slate-500 text-[11px] self-center whitespace-nowrap font-bold">Quick Report:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickPrompt('Flash flood submerging Kranti Chowk flyover underpass', 'Kranti Chowk Underpass', { lat: 19.8732, lng: 75.3268 })}
-                    className="bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800 px-2.5 py-1 rounded-full whitespace-nowrap transition font-semibold"
-                  >
-                    🌊 Flash Flood (Critical)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickPrompt('Transformer sparking with flame near residential block at CIDCO', 'CIDCO N-4 Sector', { lat: 19.8778, lng: 75.3644 })}
-                    className="bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 px-2.5 py-1 rounded-full whitespace-nowrap transition font-semibold"
-                  >
-                    🔥 Transformer Fire
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickPrompt('Major water supply pipeline burst with heavy road leakage at Waluj', 'Waluj MIDC Phase 2', { lat: 19.8450, lng: 75.2410 })}
-                    className="bg-sky-50 hover:bg-sky-100 border border-sky-300 text-sky-800 px-2.5 py-1 rounded-full whitespace-nowrap transition font-semibold"
-                  >
-                    💧 Pipeline Burst
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickPrompt('Dangerous pothole causing scooter skid on Sutgirni road', 'Garkheda Sutgirni Chowk', { lat: 19.8612, lng: 75.3475 })}
-                    className="bg-yellow-50 hover:bg-yellow-100 border border-yellow-300 text-yellow-800 px-2.5 py-1 rounded-full whitespace-nowrap transition font-semibold"
-                  >
-                    🕳️ Hazardous Pothole
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickPrompt('Solid waste accumulation and drain blockage at Begumpura', 'Begumpura University Gate', { lat: 19.9015, lng: 75.3182 })}
-                    className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 px-2.5 py-1 rounded-full whitespace-nowrap transition font-semibold"
-                  >
-                    🗑️ Waste Dump
-                  </button>
+                  {[
+                    { text: '🌊 Flash Flood (Critical)', prompt: 'Flash flood submerging Kranti Chowk flyover underpass', loc: 'Kranti Chowk Underpass', coords: { lat: 19.8732, lng: 75.3268 }, cls: 'bg-rose-50 hover:bg-rose-100 border-rose-300 text-rose-800' },
+                    { text: '🔥 Transformer Fire', prompt: 'Transformer sparking with flame near residential block at CIDCO', loc: 'CIDCO N-4 Sector', coords: { lat: 19.8778, lng: 75.3644 }, cls: 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-800' },
+                    { text: '💧 Pipeline Burst', prompt: 'Major water supply pipeline burst with heavy road leakage at Waluj', loc: 'Waluj MIDC Phase 2', coords: { lat: 19.8450, lng: 75.2410 }, cls: 'bg-sky-50 hover:bg-sky-100 border-sky-300 text-sky-800' },
+                    { text: '🕳️ Hazardous Pothole', prompt: 'Dangerous pothole causing scooter skid on Sutgirni road', loc: 'Garkheda Sutgirni Chowk', coords: { lat: 19.8612, lng: 75.3475 }, cls: 'bg-yellow-50 hover:bg-yellow-100 border-yellow-300 text-yellow-800' },
+                    { text: '🗑️ Waste Dump', prompt: 'Solid waste accumulation and drain blockage at Begumpura', loc: 'Begumpura University Gate', coords: { lat: 19.9015, lng: 75.3182 }, cls: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800' }
+                  ].map((chip, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => handleQuickPrompt(chip.prompt, chip.loc, chip.coords)}
+                      className={`border ${chip.cls} px-2.5 py-1 rounded-full whitespace-nowrap transition font-semibold hover:-translate-y-0.5 active:translate-y-0`}
+                      style={{ animationDelay: `${i * 0.05}s` }}
+                    >
+                      {chip.text}
+                    </button>
+                  ))}
                 </div>
 
                 {/* Input Area */}
@@ -792,7 +672,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => setIsLocationModalOpen(true)}
-                        className="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                        className="inline-flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 px-3 py-1.5 rounded-lg text-xs font-bold transition hover:-translate-y-0.5 active:translate-y-0"
                       >
                         <Map className="w-3.5 h-3.5" />
                         <span>Select on Map</span>
@@ -811,7 +691,7 @@ export default function App() {
                     <button
                       type="submit"
                       disabled={loading || !inputText.trim()}
-                      className="bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-bold transition flex items-center gap-2 shadow-md shadow-sky-600/30"
+                      className="bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 shadow-md shadow-sky-600/30 hover:-translate-y-0.5 active:translate-y-0"
                     >
                       <Send className="w-4 h-4" />
                       <span className="hidden sm:inline">Submit</span>
@@ -842,6 +722,13 @@ export default function App() {
             setSelectedLocation(name);
             setSelectedCoords({ lat, lng });
           }}
+        />
+
+        {/* Auth Modal */}
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          onAuthSuccess={handleAuthSuccess}
         />
       </div>
     </ErrorBoundary>

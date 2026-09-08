@@ -26,6 +26,7 @@ import {
   Radio,
   Activity
 } from 'lucide-react';
+import FeedbackPanel from './FeedbackPanel';
 
 const API_BASE = '/api';
 
@@ -432,9 +433,9 @@ export default function ComplaintTracker({
   const problemStatus = activeTicket ? getProblemStatus(activeTicket.status) : null;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6 anim-fade-in-up">
       {/* Light Search Banner */}
-      <div className="bg-gradient-to-r from-sky-50 via-white to-blue-50 border border-sky-200 rounded-2xl p-6 shadow-sm relative overflow-hidden">
+      <div className="bg-gradient-to-r from-sky-50 via-white to-blue-50 border border-sky-200 rounded-2xl p-6 shadow-sm relative overflow-hidden anim-fade-in-up">
         <div className="relative z-10">
           <div className="flex flex-wrap justify-between items-start gap-4">
             <div>
@@ -567,7 +568,7 @@ export default function ComplaintTracker({
       {activeTicket && (
         <div className="space-y-6">
           {/* Main Status Header Card */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6 anim-fade-in-up">
             <div className="flex flex-wrap justify-between items-start gap-4 pb-5 border-b border-slate-100">
               <div className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-3">
@@ -882,6 +883,9 @@ export default function ComplaintTracker({
                 </div>
               </div>
             </div>
+
+            {/* Customer Feedback Panel */}
+            <FeedbackPanel ticketId={activeTicket.id} ticketStatus={activeTicket.status} />
           </div>
         </div>
       )}

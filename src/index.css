@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
 
 :root {
   --bg: #f8fafc;
@@ -52,6 +52,276 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ============================================================================
+   ANIMATION KEYFRAMES — Premium Motion Design System
+   ============================================================================ */
+
+/* Fade In Up — Primary entrance animation */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Fade In — Simple fade */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Slide Down — Header entrance */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Slide In Left */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Slide In Right */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Scale In — Modal / Card pop entrance */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Float — Subtle up/down floating for decorative elements */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+/* Float Slow — Larger, slower float */
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-12px) rotate(2deg); }
+}
+
+/* Glow Pulse — Pulsing glow effect on accent elements */
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(2, 132, 199, 0.3), 0 0 16px rgba(2, 132, 199, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(2, 132, 199, 0.5), 0 0 32px rgba(2, 132, 199, 0.2);
+  }
+}
+
+/* Shimmer — Loading skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Gradient Shift — Animated gradient background */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Border Glow — Animated border glow */
+@keyframes borderGlow {
+  0%, 100% { border-color: rgba(2, 132, 199, 0.3); }
+  50% { border-color: rgba(2, 132, 199, 0.7); }
+}
+
+/* Ripple — Button ripple effect */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* Bounce In — Bouncy entrance */
+@keyframes bounceIn {
+  0% { opacity: 0; transform: scale(0.3); }
+  50% { transform: scale(1.05); }
+  70% { transform: scale(0.9); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Wiggle — Attention-seeking micro animation */
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-3deg); }
+  75% { transform: rotate(3deg); }
+}
+
+/* Ticker Scroll — Smooth vertical scroll for alerts */
+@keyframes tickerScroll {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
+/* ============================================================================
+   ANIMATION UTILITY CLASSES
+   ============================================================================ */
+
+.anim-fade-in-up {
+  animation: fadeInUp 0.5s cubic-bezier(0.22, 0.7, 0.2, 1) both;
+}
+
+.anim-fade-in {
+  animation: fadeIn 0.4s ease-out both;
+}
+
+.anim-slide-down {
+  animation: slideDown 0.4s cubic-bezier(0.22, 0.7, 0.2, 1) both;
+}
+
+.anim-slide-in-left {
+  animation: slideInLeft 0.5s cubic-bezier(0.22, 0.7, 0.2, 1) both;
+}
+
+.anim-slide-in-right {
+  animation: slideInRight 0.5s cubic-bezier(0.22, 0.7, 0.2, 1) both;
+}
+
+.anim-scale-in {
+  animation: scaleIn 0.35s cubic-bezier(0.22, 0.7, 0.2, 1) both;
+}
+
+.anim-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.anim-float-slow {
+  animation: floatSlow 6s ease-in-out infinite;
+}
+
+.anim-glow-pulse {
+  animation: glowPulse 2.5s ease-in-out infinite;
+}
+
+.anim-shimmer {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+.anim-gradient-shift {
+  background-size: 200% 200%;
+  animation: gradientShift 8s ease infinite;
+}
+
+.anim-border-glow {
+  animation: borderGlow 2s ease-in-out infinite;
+}
+
+.anim-bounce-in {
+  animation: bounceIn 0.6s cubic-bezier(0.22, 0.7, 0.2, 1) both;
+}
+
+.anim-wiggle {
+  animation: wiggle 0.6s ease-in-out;
+}
+
+/* Stagger delay utility — apply to children */
+.anim-stagger > *:nth-child(1) { animation-delay: 0s; }
+.anim-stagger > *:nth-child(2) { animation-delay: 0.05s; }
+.anim-stagger > *:nth-child(3) { animation-delay: 0.1s; }
+.anim-stagger > *:nth-child(4) { animation-delay: 0.15s; }
+.anim-stagger > *:nth-child(5) { animation-delay: 0.2s; }
+.anim-stagger > *:nth-child(6) { animation-delay: 0.25s; }
+.anim-stagger > *:nth-child(7) { animation-delay: 0.3s; }
+.anim-stagger > *:nth-child(8) { animation-delay: 0.35s; }
+
+/* ============================================================================
+   INTERACTIVE HOVER EFFECTS
+   ============================================================================ */
+
+/* Spring hover lift */
+.hover-lift {
+  transition: transform 0.2s cubic-bezier(0.22, 0.7, 0.2, 1), box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+.hover-lift:active {
+  transform: translateY(0);
+}
+
+/* Button ripple container */
+.btn-ripple {
+  position: relative;
+  overflow: hidden;
+}
+.btn-ripple::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition: width 0.4s, height 0.4s;
+}
+.btn-ripple:active::after {
+  width: 200px;
+  height: 200px;
+  opacity: 0;
+  transition: width 0s, height 0s, opacity 0.4s;
+}
+
+/* Card hover glow */
+.card-hover-glow {
+  transition: all 0.3s cubic-bezier(0.22, 0.7, 0.2, 1);
+}
+.card-hover-glow:hover {
+  border-color: rgba(2, 132, 199, 0.4);
+  box-shadow: 0 0 0 1px rgba(2, 132, 199, 0.1), 0 8px 25px -5px rgba(2, 132, 199, 0.08);
+}
+
+/* ============================================================================
+   EXISTING STYLES — Tabular Numbers, Command Deck, etc.
+   ============================================================================ */
+
 /* Tabular numbers */
 .mono, .num, .val, .v, .amt, .dl {
   font-family: var(--mono) !important;
@@ -77,6 +347,7 @@ html, body {
   position: sticky;
   top: 0;
   z-index: 40;
+  animation: slideDown 0.4s cubic-bezier(0.22, 0.7, 0.2, 1) both;
 }
 
 /* Decorative Card Styles */
@@ -89,12 +360,13 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: box-shadow var(--fast), border-color var(--fast);
+  transition: box-shadow 0.3s cubic-bezier(0.22, 0.7, 0.2, 1), border-color 0.3s cubic-bezier(0.22, 0.7, 0.2, 1), transform 0.3s cubic-bezier(0.22, 0.7, 0.2, 1);
 }
 
 .csn-card:hover {
   border-color: #cbd5e1;
-  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(2, 132, 199, 0.05);
+  transform: translateY(-1px);
 }
 
 /* Futuristic Light Corner Accents */
@@ -106,6 +378,11 @@ html, body {
   border: 2px solid #0284c7;
   opacity: 0.6;
   pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.csn-card:hover:before, .csn-card:hover:after {
+  opacity: 1;
 }
 
 .csn-card:before {
@@ -166,13 +443,13 @@ html, body {
   position: relative;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  transition: all var(--fast);
+  transition: all 0.3s cubic-bezier(0.22, 0.7, 0.2, 1);
 }
 
 .csn-kpi:hover {
-  transform: translateY(-1px);
+  transform: translateY(-3px);
   border-color: #cbd5e1;
-  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08);
+  box-shadow: 0 8px 25px -5px rgba(2, 132, 199, 0.12), 0 0 0 1px rgba(2, 132, 199, 0.05);
 }
 
 .csn-kpi:after {
@@ -183,6 +460,11 @@ html, body {
   bottom: 0;
   height: 2px;
   background: linear-gradient(90deg, #0284c7, transparent 80%);
+  transition: height 0.3s ease;
+}
+
+.csn-kpi:hover:after {
+  height: 3px;
 }
 
 .csn-kpi .label {
@@ -266,6 +548,12 @@ html, body {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-left: 3.5px solid #d97706;
+  transition: all 0.2s ease;
+}
+
+.csn-alert-item:hover {
+  background: #f1f5f9;
+  transform: translateX(2px);
 }
 
 .csn-alert-item.critical {
@@ -316,4 +604,32 @@ html, body {
 
 ::-webkit-scrollbar-track {
   background: #f1f5f9;
+}
+
+/* ============================================================================
+   PAGE TRANSITION SMOOTHING
+   ============================================================================ */
+.page-enter {
+  animation: fadeInUp 0.4s cubic-bezier(0.22, 0.7, 0.2, 1) both;
+}
+
+/* Smooth table row hover */
+table tbody tr {
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+table tbody tr:hover {
+  background-color: rgba(241, 245, 249, 0.8);
+}
+
+/* Smooth input focus glow */
+input:focus, textarea:focus, select:focus {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+/* Smooth button press */
+button {
+  transition: all 0.15s cubic-bezier(0.22, 0.7, 0.2, 1);
+}
+button:active {
+  transform: scale(0.97);
 }
