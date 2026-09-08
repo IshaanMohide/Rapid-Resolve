@@ -32,6 +32,7 @@ import {
   User
 } from 'lucide-react';
 import SambhajiNagarMap from './SambhajiNagarMap';
+import { safeString } from './utils.js';
 
 // Sambhaji Nagar Ward Performance Data
 const WARDS_PERFORMANCE = [
@@ -150,7 +151,8 @@ export default function CommandCenter({
         setLoginError('Invalid credentials. Use ID: admin and PW: rapidresolve2026');
       }
     } catch (err) {
-      setLoginError(err.message || 'Authentication failed');
+      const raw = err.response?.data?.error || err.response?.data || err.message;
+      setLoginError(safeString(raw, 'Authentication failed'));
     } finally {
       setLoginLoading(false);
     }
@@ -350,7 +352,7 @@ export default function CommandCenter({
           {loginError && (
             <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 flex-none" />
-              <span>{loginError}</span>
+              <span>{safeString(loginError)}</span>
             </div>
           )}
 
@@ -1027,31 +1029,31 @@ export default function CommandCenter({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-[10px] font-bold">
-                          {fb.user_name ? fb.user_name.charAt(0).toUpperCase() : <User className="w-3 h-3" />}
+                          {fb.user_name && typeof fb.user_name === 'string' ? fb.user_name.charAt(0).toUpperCase() : <User className="w-3 h-3" />}
                         </div>
                         <div>
                           <span className="text-xs font-semibold text-slate-900">
-                            {fb.user_name || 'Anonymous Citizen'}
+                            {safeString(fb.user_name, 'Anonymous Citizen')}
                           </span>
                           {fb.user_email && (
                             <span className="text-[10px] text-slate-400 ml-1.5 font-mono">
-                              ({fb.user_email})
+                              ({safeString(fb.user_email)})
                             </span>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1 bg-white border border-amber-200 px-2 py-0.5 rounded-md">
                         <Star className="w-3 h-3 text-amber-500 fill-amber-400" />
-                        <span className="text-xs font-bold text-amber-900">{fb.rating}/5</span>
+                        <span className="text-xs font-bold text-amber-900">{safeString(fb.rating)}/5</span>
                       </div>
                     </div>
                     {fb.comment && (
                       <p className="text-xs text-slate-700 italic pl-8">
-                        "{fb.comment}"
+                        "{safeString(fb.comment)}"
                       </p>
                     )}
                     <div className="text-[10px] text-slate-400 pl-8">
-                      Submitted on: {new Date(fb.created_at).toLocaleString()}
+                      Submitted on: {fb.created_at ? new Date(fb.created_at).toLocaleString() : 'Recent'}
                     </div>
                   </div>
                 ))

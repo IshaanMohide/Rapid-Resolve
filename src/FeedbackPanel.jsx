@@ -4,8 +4,19 @@ import {
   Star, Send, MessageSquare, AlertTriangle, CheckCircle2,
   ThumbsUp, User, FileText
 } from 'lucide-react';
+import { safeString } from './utils.js';
 
 const API_BASE = '/api';
+
+function formatFeedbackDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? '' : d.toLocaleString();
+  } catch {
+    return '';
+  }
+}
 
 function StarRating({ rating, onRate, interactive = true, size = 'md' }) {
   const [hovered, setHovered] = useState(0);
@@ -102,7 +113,8 @@ export default function FeedbackPanel({ ticketId, ticketStatus }) {
         setTimeout(() => setSubmitSuccess(false), 3000);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to submit feedback.');
+      const raw = err.response?.data?.error || err.response?.data || err.message;
+      setError(safeString(raw, 'Failed to submit feedback.'));
     } finally {
       setSubmitting(false);
     }
@@ -172,7 +184,7 @@ export default function FeedbackPanel({ ticketId, ticketStatus }) {
           {error && (
             <div className="bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 anim-fade-in">
               <AlertTriangle className="w-3.5 h-3.5" />
-              <span>{error}</span>
+              <span>{safeString(error)}</span>
             </div>
           )}
 
@@ -214,21 +226,21 @@ export default function FeedbackPanel({ ticketId, ticketStatus }) {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-sky-100 text-sky-700 flex items-center justify-center text-[10px] font-bold">
-                        {fb.user_name ? fb.user_name.charAt(0).toUpperCase() : <User className="w-3 h-3" />}
+                        {fb.user_name && typeof fb.user_name === 'string' ? fb.user_name.charAt(0).toUpperCase() : <User className="w-3 h-3" />}
                       </div>
                       <span className="text-xs font-semibold text-slate-800">
-                        {fb.user_name || 'Anonymous Citizen'}
+                        {safeString(fb.user_name, 'Anonymous Citizen')}
                       </span>
                     </div>
-                    <StarRating rating={fb.rating} interactive={false} size="sm" />
+                    <StarRating rating={Number(fb.rating) || 5} interactive={false} size="sm" />
                   </div>
                   {fb.comment && (
                     <p className="text-xs text-slate-600 leading-relaxed pl-8">
-                      "{fb.comment}"
+                      "{safeString(fb.comment)}"
                     </p>
                   )}
                   <div className="text-[10px] text-slate-400 pl-8">
-                    {new Date(fb.created_at).toLocaleString()}
+                    {formatFeedbackDate(fb.created_at)}
                   </div>
                 </div>
               ))}

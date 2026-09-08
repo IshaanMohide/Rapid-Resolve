@@ -27,6 +27,7 @@ import LocationPickerModal from './LocationPickerModal';
 import ComplaintTracker from './ComplaintTracker';
 import AuthModal from './AuthModal';
 import { ErrorBoundary } from './ErrorBoundary';
+import { safeString } from './utils.js';
 
 // Relative API base connects seamlessly in both Vite proxy dev and Express unified production
 const API_BASE = '/api';
@@ -274,11 +275,17 @@ export default function App() {
       );
       const t = res.data?.ticket;
 
-      if (t) {
+      if (t && typeof t === 'object') {
         try {
-          const saved = JSON.parse(localStorage.getItem('rapidresolve_citizen_tickets') || '[]');
-          const updated = [t.id, ...saved.filter((x) => x !== t.id)].slice(0, 8);
-          localStorage.setItem('rapidresolve_citizen_tickets', JSON.stringify(updated));
+          if (t.id && (typeof t.id === 'number' || !isNaN(Number(t.id)))) {
+            const numId = Number(t.id);
+            const saved = JSON.parse(localStorage.getItem('rapidresolve_citizen_tickets') || '[]');
+            const cleanSaved = Array.isArray(saved)
+              ? saved.filter((x) => typeof x === 'number' || (typeof x === 'string' && !isNaN(Number(x))))
+              : [];
+            const updated = [numId, ...cleanSaved.filter((x) => Number(x) !== numId)].slice(0, 8);
+            localStorage.setItem('rapidresolve_citizen_tickets', JSON.stringify(updated));
+          }
         } catch {
           // Ignore localStorage errors
         }
@@ -297,9 +304,15 @@ export default function App() {
       console.warn('Backend API unavailable or timed out. Engaging resilient edge triage engine:', err);
       const fallbackTicket = triageClientSide(currentText, selectedLocation, selectedCoords);
       try {
-        const saved = JSON.parse(localStorage.getItem('rapidresolve_citizen_tickets') || '[]');
-        const updated = [fallbackTicket.id, ...saved.filter((x) => x !== fallbackTicket.id)].slice(0, 8);
-        localStorage.setItem('rapidresolve_citizen_tickets', JSON.stringify(updated));
+        if (fallbackTicket.id) {
+          const numId = Number(fallbackTicket.id);
+          const saved = JSON.parse(localStorage.getItem('rapidresolve_citizen_tickets') || '[]');
+          const cleanSaved = Array.isArray(saved)
+            ? saved.filter((x) => typeof x === 'number' || (typeof x === 'string' && !isNaN(Number(x))))
+            : [];
+          const updated = [numId, ...cleanSaved.filter((x) => Number(x) !== numId)].slice(0, 8);
+          localStorage.setItem('rapidresolve_citizen_tickets', JSON.stringify(updated));
+        }
       } catch {
         // Ignore localStorage errors
       }
@@ -371,12 +384,12 @@ export default function App() {
           <div className="hidden md:flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600">
             <div className="flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${health?.status === 'online' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              <span className="font-semibold text-slate-700">{health ? health.database : 'Connected'}</span>
+              <span className="font-semibold text-slate-700">{safeString(health?.database, 'Connected')}</span>
             </div>
             <span className="text-slate-300">|</span>
             <div className="flex items-center gap-1 text-slate-500">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>{health ? health.aiEngine : 'AI Triage Active'}</span>
+              <span>{safeString(health?.aiEngine, 'AI Triage Active')}</span>
             </div>
           </div>
 
@@ -387,9 +400,9 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-xl text-xs">
                   <div className="w-5 h-5 rounded-full bg-sky-600 text-white flex items-center justify-center text-[10px] font-bold">
-                    {citizenUser.name?.charAt(0).toUpperCase()}
+                    {citizenUser.name && typeof citizenUser.name === 'string' ? citizenUser.name.charAt(0).toUpperCase() : 'U'}
                   </div>
-                  <span className="font-semibold text-emerald-800 hidden sm:inline">{citizenUser.name}</span>
+                  <span className="font-semibold text-emerald-800 hidden sm:inline">{safeString(citizenUser.name, 'Citizen')}</span>
                 </div>
                 <button
                   onClick={handleCitizenLogout}
@@ -513,7 +526,7 @@ export default function App() {
                             : 'bg-white text-slate-800 border border-slate-200'
                         }`}
                       >
-                        <div className="whitespace-pre-wrap">{m.text}</div>
+                        <div className="whitespace-pre-wrap">{safeString(m.text)}</div>
 
                         {/* Ticket Triage Card if generated */}
                         {m.ticket && (
@@ -597,7 +610,7 @@ export default function App() {
                                   </span>
                                 </div>
                                 <div className="text-[11px] text-rose-900 font-mono bg-white border border-rose-200 p-2 rounded-lg leading-relaxed">
-                                  💬 {m.ticket.sms_body || `[DISPATCH] Ticket #${m.ticket.id} (${m.ticket.category} -> ${m.ticket.department}) at ${m.ticket.location_name}. Respond immediately. SLA: 30m.`}
+                                  💬 {safeString(m.ticket.sms_body, `[DISPATCH] Ticket #${m.ticket.id} (${m.ticket.category} -> ${m.ticket.department}) at ${m.ticket.location_name}. Respond immediately. SLA: 30m.`)}
                                 </div>
                               </div>
                             )}

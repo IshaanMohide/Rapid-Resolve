@@ -4,6 +4,7 @@ import {
   X, UserPlus, LogIn, Mail, Lock, Phone, User,
   Eye, EyeOff, AlertTriangle, CheckCircle2, Sparkles
 } from 'lucide-react';
+import { safeString } from './utils.js';
 
 const API_BASE = '/api';
 
@@ -88,7 +89,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         }
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Authentication failed. Please try again.');
+      const raw = err.response?.data?.error || err.response?.data || err.message;
+      setError(safeString(raw, 'Authentication failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -130,13 +132,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
           {error && (
             <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 anim-fade-in-up">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              <span>{error}</span>
+              <span>{safeString(error)}</span>
             </div>
           )}
           {success && (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 anim-fade-in-up">
               <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              <span>{success}</span>
+              <span>{safeString(success)}</span>
             </div>
           )}
 

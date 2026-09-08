@@ -27,6 +27,7 @@ import {
   Activity
 } from 'lucide-react';
 import FeedbackPanel from './FeedbackPanel';
+import { safeString } from './utils.js';
 
 const API_BASE = '/api';
 
@@ -249,7 +250,10 @@ export default function ComplaintTracker({
   const [recentTicketIds, setRecentTicketIds] = useState(() => {
     try {
       const saved = localStorage.getItem('rapidresolve_citizen_tickets');
-      return saved ? JSON.parse(saved) : [4820, 4821, 4823];
+      const parsed = saved ? JSON.parse(saved) : [4820, 4821, 4823];
+      return Array.isArray(parsed)
+        ? parsed.filter(x => typeof x === 'number' || (typeof x === 'string' && x.trim() !== ''))
+        : [4820, 4821, 4823];
     } catch {
       return [4820, 4821, 4823];
     }
@@ -272,7 +276,7 @@ export default function ComplaintTracker({
         saveToRecentTickets(res.data.ticket.id);
         setLastSyncedTime(new Date());
       } else if (!silent) {
-        setErrorMessage(res.data?.error || `Complaint #${cleanId} was not found.`);
+        setErrorMessage(safeString(res.data?.error, `Complaint #${cleanId} was not found.`));
         setActiveTicket(null);
       }
     } catch (err) {
@@ -284,9 +288,12 @@ export default function ComplaintTracker({
         saveToRecentTickets(localMatch.id);
         setLastSyncedTime(new Date());
       } else if (!silent) {
+        const rawErr = err.response?.data?.error || err.response?.data || err.message;
         setErrorMessage(
-          err.response?.data?.error ||
+          safeString(
+            rawErr,
             `Complaint #${cleanId} could not be located in the municipal records. Please verify the ticket number.`
+          )
         );
         setActiveTicket(null);
       }
@@ -405,9 +412,11 @@ export default function ComplaintTracker({
 
   const saveToRecentTickets = (id) => {
     try {
+      if (!id || typeof id === 'object') return;
       const num = Number(id);
+      if (isNaN(num)) return;
       setRecentTicketIds((prev) => {
-        const filtered = prev.filter((item) => item !== num);
+        const filtered = prev.filter((item) => item !== num && typeof item !== 'object');
         const updated = [num, ...filtered].slice(0, 8);
         localStorage.setItem('rapidresolve_citizen_tickets', JSON.stringify(updated));
         return updated;
@@ -529,9 +538,9 @@ export default function ComplaintTracker({
             </button>
 
             {/* Other recently tracked ticket IDs */}
-            {recentTicketIds.filter(id => ![4820, 4821, 4823].includes(id)).map((id) => (
+            {recentTicketIds.filter(id => id && typeof id !== 'object' && ![4820, 4821, 4823].includes(id)).map((id) => (
               <button
-                key={id}
+                key={String(id)}
                 type="button"
                 onClick={() => {
                   setSearchId(String(id));
@@ -543,7 +552,7 @@ export default function ComplaintTracker({
                     : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
                 }`}
               >
-                #{id}
+                #{String(id)}
               </button>
             ))}
           </div>
@@ -556,7 +565,7 @@ export default function ComplaintTracker({
           <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="space-y-1">
             <div className="font-bold text-rose-900">Complaint Not Found</div>
-            <p className="text-xs text-rose-700">{errorMessage}</p>
+            <p className="text-xs text-rose-700">{safeString(errorMessage)}</p>
             <p className="text-[11px] text-slate-500 mt-1">
               Tip: Click sample buttons above to inspect <b className="text-slate-700 font-mono">4820</b> or <b className="text-slate-700 font-mono">4821</b>.
             </p>
