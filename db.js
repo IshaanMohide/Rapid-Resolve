@@ -139,14 +139,48 @@ function initSchema(database) {
 // Seed Default Data
 // -----------------------------------------------------------------------------
 function seedDefaults(database) {
-  // Seed default admin if none exist
-  const adminCount = database.prepare('SELECT COUNT(*) as cnt FROM admins').get();
-  if (adminCount.cnt === 0) {
-    const hash = bcrypt.hashSync('rapidresolve2026', 10);
+  // Synchronize admin credentials with admin_credentials.json
+  const credPath = path.join(__dirname, 'admin_credentials.json');
+  let credId = 'admin';
+  let credPass = 'rapidresolve2026';
+  let credRole = 'Chief Incident Commander';
+  let credDept = 'Rapid Resolve Unified Command Center';
+
+  try {
+    if (fs.existsSync(credPath)) {
+      const raw = JSON.parse(fs.readFileSync(credPath, 'utf8'));
+      if (raw.adminId) credId = String(raw.adminId).trim();
+      if (raw.password) credPass = String(raw.password).trim();
+      if (raw.role) credRole = String(raw.role).trim();
+      if (raw.department) credDept = String(raw.department).trim();
+    }
+  } catch (err) {
+    console.warn('Note: Could not parse admin_credentials.json, using defaults:', err.message);
+  }
+
+  const existingAdmin = database.prepare('SELECT * FROM admins WHERE LOWER(admin_id) = ?').get(credId.toLowerCase());
+  const hash = bcrypt.hashSync(credPass, 10);
+
+  if (!existingAdmin) {
     database.prepare(
       'INSERT INTO admins (admin_id, password_hash, role, department) VALUES (?, ?, ?, ?)'
-    ).run('admin', hash, 'Chief Incident Commander', 'Rapid Resolve Unified Command Center');
-    console.log('✅ Default admin seeded (admin / rapidresolve2026).');
+    ).run(credId, hash, credRole, credDept);
+    console.log(`✅ Default admin seeded in SQLite (${credId} / ${credPass}).`);
+  } else {
+    // Keep password and role synchronized with credentials file
+    database.prepare(
+      'UPDATE admins SET password_hash = ?, role = ?, department = ? WHERE id = ?'
+    ).run(hash, credRole, credDept, existingAdmin.id);
+  }
+
+  // Ensure admin is also synced in users table for universal fallback login
+  const existingUserAdmin = database.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get('admin');
+  if (!existingUserAdmin) {
+    database.prepare(
+      'INSERT INTO users (name, email, password_hash, phone) VALUES (?, ?, ?, ?)'
+    ).run('Chief Incident Commander', 'admin', hash, '+91 99999 00000');
+  } else {
+    database.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, existingUserAdmin.id);
   }
 
   // Seed sample tickets if none exist

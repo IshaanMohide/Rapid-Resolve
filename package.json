@@ -4,10 +4,10 @@
   "description": "Rapid Resolve - Enterprise AI Triage & Emergency Response Platform",
   "type": "module",
   "scripts": {
-    "dev:server": "node server.js",
+    "dev:server": "node --watch server.js",
     "dev:client": "vite",
-    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,green.bold\" \"node server.js\" \"vite\"",
-    "dev:all": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,green.bold\" \"node server.js\" \"vite\"",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,green.bold\" \"node --watch server.js\" \"vite\"",
+    "dev:all": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,green.bold\" \"node --watch server.js\" \"vite\"",
     "build": "vite build",
     "start": "node server.js",
     "export:feedback": "node export_feedback.js",
