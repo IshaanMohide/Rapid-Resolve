@@ -40,25 +40,28 @@
 ```
 rapidresolve/
 ├── admin_credentials.json     # Admin ID and password clearance file
-├── backend                    # Core API reference implementation
+├── db.js                      # High-performance SQLite database (WAL mode) & reactive event bus
 ├── Dockerfile                 # Multi-stage production container build
-├── frontend                   # Standalone frontend view reference
+├── feedback_records.csv       # Citizen feedback audit export
 ├── index.html                 # Main HTML entry with Google Fonts & Leaflet
 ├── package.json               # Full-stack dependencies & build scripts
 ├── postcss.config.js          # PostCSS configuration
 ├── render.yaml                # 1-Click Render.com deployment blueprint
-├── server.js                  # Unified Express server & static asset host
+├── server.js                  # Unified Express server & real-time REST API
 ├── src/
+│   ├── AdminPage.jsx          # Role-secured Admin Command Center with telemetry
 │   ├── App.jsx                # Main React UI (Citizen Desk, Tracker & Admin Center)
+│   ├── AuthModal.jsx          # Citizen & Administrative authentication modal
 │   ├── ComplaintTracker.jsx   # Citizen complaint tracker with lifecycle stepper & SLA timer
 │   ├── EmergencyMap.jsx       # Geospatial incident map view
 │   ├── ErrorBoundary.jsx      # React error boundary component
 │   ├── LocationPickerModal.jsx# Interactive map modal with pin drop & GPS
+│   ├── RealtimeDBModal.jsx    # Real-time SQLite database inspector & telemetry modal
 │   ├── SLAChart.jsx           # Departmental incident SLA chart
 │   ├── index.css              # Custom styling & Tailwind directives
 │   └── main.jsx               # React entry point
 ├── tailwind.config.js         # Tailwind CSS styling tokens
-└── vite.config.js             # Vite build bundler configuration
+└── vite.config.js             # Vite build bundler configuration with API proxy
 ```
 
 ---
@@ -83,7 +86,14 @@ PORT=5000
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-### 4. Build & Launch Unified Server
+### 4. Run Development Servers (Recommended)
+Runs both the Express backend on port 5000 and the Vite frontend on port 5173 concurrently:
+```bash
+npm run dev
+```
+Open [http://localhost:5173](http://localhost:5173) in your browser. (The Vite server automatically proxies `/api/*` calls to the Express backend).
+
+### 5. Production Build & Launch
 ```bash
 # Build the production React frontend
 npm run build
