@@ -21,11 +21,13 @@ import {
   Search,
   User,
   LogOut,
-  UserPlus
+  UserPlus,
+  Database
 } from 'lucide-react';
 import LocationPickerModal from './LocationPickerModal';
 import ComplaintTracker from './ComplaintTracker';
 import AuthModal from './AuthModal';
+import RealtimeDBModal from './RealtimeDBModal';
 import { ErrorBoundary } from './ErrorBoundary';
 import { safeString } from './utils.js';
 
@@ -142,6 +144,9 @@ export default function App() {
   const [health, setHealth] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Real-Time Database Inspector Modal State
+  const [isRealtimeModalOpen, setIsRealtimeModalOpen] = useState(false);
+
   // Citizen Auth State
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [citizenUser, setCitizenUser] = useState(() => {
@@ -175,6 +180,39 @@ export default function App() {
     let es;
     try {
       es = new EventSource(`${API_BASE}/events`);
+
+      es.addEventListener('connected', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data?.dbStats) {
+            setHealth((prev) => ({ ...prev, status: 'online', database: 'Real-Time Database (Active)', dbStats: data.dbStats }));
+          }
+        } catch {}
+      });
+
+      // Listen to generic real-time database mutations
+      es.addEventListener('db_change', (e) => {
+        try {
+          const change = JSON.parse(e.data);
+          if (change?.table === 'tickets') {
+            if (change.type === 'INSERT' && change.record) {
+              setTickets((prev) => {
+                if (prev.some((t) => t.id === change.record.id)) return prev;
+                return [change.record, ...prev];
+              });
+            } else if (change.type === 'UPDATE' && change.record) {
+              setTickets((prev) =>
+                prev.map((t) => (t.id === change.record.id ? { ...t, ...change.record } : t))
+              );
+            } else if (change.type === 'DELETE' && change.record?.id) {
+              setTickets((prev) => prev.filter((t) => t.id !== change.record.id));
+            }
+          }
+        } catch (err) {
+          console.error('SSE db_change parse error in App:', err);
+        }
+      });
+
       es.addEventListener('ticket_created', (e) => {
         try {
           const payload = JSON.parse(e.data);
@@ -218,6 +256,7 @@ export default function App() {
 
     const interval = setInterval(() => {
       fetchTickets(true);
+      fetchHealth();
     }, 15000);
 
     return () => {
@@ -228,10 +267,14 @@ export default function App() {
 
   const fetchHealth = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/health`);
+      const res = await axios.get(`${API_BASE}/health`, { timeout: 3000 });
       setHealth(res.data);
     } catch {
-      setHealth({ status: 'online', database: 'SQLite (Persistent)', aiEngine: 'Local Heuristic Engine' });
+      setHealth({
+        status: 'connecting',
+        database: 'Real-Time DB (Offline Mode)',
+        aiEngine: 'Local Heuristic Engine'
+      });
     }
   };
 
@@ -380,18 +423,26 @@ export default function App() {
             </div>
           </div>
 
-          {/* System Health Indicators */}
-          <div className="hidden md:flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600">
+          {/* Real-Time Database Status Badge (Clickable to open Inspector) */}
+          <button
+            type="button"
+            onClick={() => setIsRealtimeModalOpen(true)}
+            className="hidden md:flex items-center gap-2 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-600 transition hover:shadow-xs group cursor-pointer"
+            title="Click to open Real-Time Database Inspector & Live Event Stream"
+          >
             <div className="flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${health?.status === 'online' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              <span className="font-semibold text-slate-700">{safeString(health?.database, 'Connected')}</span>
+              <span className="font-semibold text-slate-800 group-hover:text-sky-700 transition">
+                {health?.status === 'online' ? 'Real-Time Database (Active)' : 'Real-Time DB (Connecting)'}
+              </span>
             </div>
             <span className="text-slate-300">|</span>
             <div className="flex items-center gap-1 text-slate-500">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>{safeString(health?.aiEngine, 'AI Triage Active')}</span>
+              <span>{safeString(health?.aiEngine, 'Local Heuristic Engine')}</span>
             </div>
-          </div>
+            <Database className="w-3.5 h-3.5 text-sky-600 group-hover:scale-110 transition ml-0.5" />
+          </button>
 
           {/* Right: Auth + Tab Switcher */}
           <div className="flex items-center gap-3">
@@ -742,6 +793,12 @@ export default function App() {
           isOpen={isAuthModalOpen}
           onClose={() => setIsAuthModalOpen(false)}
           onAuthSuccess={handleAuthSuccess}
+        />
+
+        {/* Real-Time Database Inspector & Telemetry Modal */}
+        <RealtimeDBModal
+          isOpen={isRealtimeModalOpen}
+          onClose={() => setIsRealtimeModalOpen(false)}
         />
       </div>
     </ErrorBoundary>

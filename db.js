@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
+import { EventEmitter } from 'events';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,16 +11,66 @@ const __dirname = path.dirname(__filename);
 const DB_PATH = path.join(__dirname, 'rapidresolve.db');
 export const CSV_PATH = path.join(__dirname, 'feedback_records.csv');
 
-let db;
+// -----------------------------------------------------------------------------
+// Real-Time Event Bus & In-Memory Transaction Log
+// -----------------------------------------------------------------------------
+export const dbEventEmitter = new EventEmitter();
+// Max listeners increased for multiple SSE connections
+dbEventEmitter.setMaxListeners(200);
+
+const MAX_EVENT_HISTORY = 50;
+const recentDBEvents = [];
+
+function recordRealtimeEvent(type, table, record, summary) {
+  const eventObj = {
+    id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    type,       // 'INSERT', 'UPDATE', 'DELETE'
+    table,      // 'users', 'tickets', 'feedback', 'admins'
+    summary: summary || `${type} operation on table ${table}`,
+    record,
+    timestamp: new Date().toISOString()
+  };
+
+  recentDBEvents.unshift(eventObj);
+  if (recentDBEvents.length > MAX_EVENT_HISTORY) {
+    recentDBEvents.pop();
+  }
+
+  // Broadcast to all internal listeners and SSE stream
+  dbEventEmitter.emit('db:change', eventObj);
+  dbEventEmitter.emit(`${table}:${type.toLowerCase()}`, eventObj);
+
+  return eventObj;
+}
+
+export function getRecentDBEvents() {
+  return [...recentDBEvents];
+}
+
+// -----------------------------------------------------------------------------
+// Resilient Database Connection Singleton
+// -----------------------------------------------------------------------------
+let db = null;
 
 export function getDB() {
   if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    initSchema();
-    seedDefaults();
-    syncFeedbackToCSV();
+    try {
+      db = new Database(DB_PATH, { timeout: 10000 });
+      // Configure high-concurrency WAL mode & busy timeout to eliminate locks
+      db.pragma('journal_mode = WAL');
+      db.pragma('busy_timeout = 10000');
+      db.pragma('synchronous = NORMAL');
+      db.pragma('cache_size = -64000'); // 64MB cache
+      db.pragma('foreign_keys = ON');
+
+      initSchema(db);
+      seedDefaults(db);
+      syncFeedbackToCSV();
+      console.log('⚡ Real-Time SQLite Database connected with WAL mode & reactive event bus.');
+    } catch (err) {
+      console.error('CRITICAL: Failed to initialize SQLite database:', err);
+      throw err;
+    }
   }
   return db;
 }
@@ -27,8 +78,8 @@ export function getDB() {
 // -----------------------------------------------------------------------------
 // Schema Initialization
 // -----------------------------------------------------------------------------
-function initSchema() {
-  db.exec(`
+function initSchema(database) {
+  database.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -81,25 +132,25 @@ function initSchema() {
     );
   `);
 
-  console.log('✅ SQLite schema initialized (users, admins, tickets, feedback).');
+  console.log('✅ SQLite schema validated (users, admins, tickets, feedback).');
 }
 
 // -----------------------------------------------------------------------------
 // Seed Default Data
 // -----------------------------------------------------------------------------
-function seedDefaults() {
+function seedDefaults(database) {
   // Seed default admin if none exist
-  const adminCount = db.prepare('SELECT COUNT(*) as cnt FROM admins').get();
+  const adminCount = database.prepare('SELECT COUNT(*) as cnt FROM admins').get();
   if (adminCount.cnt === 0) {
     const hash = bcrypt.hashSync('rapidresolve2026', 10);
-    db.prepare(
+    database.prepare(
       'INSERT INTO admins (admin_id, password_hash, role, department) VALUES (?, ?, ?, ?)'
     ).run('admin', hash, 'Chief Incident Commander', 'Rapid Resolve Unified Command Center');
     console.log('✅ Default admin seeded (admin / rapidresolve2026).');
   }
 
   // Seed sample tickets if none exist
-  const ticketCount = db.prepare('SELECT COUNT(*) as cnt FROM tickets').get();
+  const ticketCount = database.prepare('SELECT COUNT(*) as cnt FROM tickets').get();
   if (ticketCount.cnt === 0) {
     const sampleTickets = [
       {
@@ -184,12 +235,12 @@ function seedDefaults() {
       }
     ];
 
-    const insertStmt = db.prepare(`
+    const insertStmt = database.prepare(`
       INSERT INTO tickets (id, description, category, urgency, department, location_name, latitude, longitude, sla_deadline, is_emergency, status, created_at, resolved_at, resolution_notes)
       VALUES (@id, @description, @category, @urgency, @department, @location_name, @latitude, @longitude, @sla_deadline, @is_emergency, @status, @created_at, @resolved_at, @resolution_notes)
     `);
 
-    const insertMany = db.transaction((tickets) => {
+    const insertMany = database.transaction((tickets) => {
       for (const t of tickets) insertStmt.run(t);
     });
     insertMany(sampleTickets);
@@ -198,22 +249,82 @@ function seedDefaults() {
 }
 
 // -----------------------------------------------------------------------------
-// User CRUD
+// Real-Time Database Telemetry & Stats
+// -----------------------------------------------------------------------------
+export function getDBStats() {
+  const database = getDB();
+  const ticketCount = database.prepare('SELECT COUNT(*) as cnt FROM tickets').get().cnt;
+  const openTickets = database.prepare("SELECT COUNT(*) as cnt FROM tickets WHERE status != 'RESOLVED'").get().cnt;
+  const criticalTickets = database.prepare("SELECT COUNT(*) as cnt FROM tickets WHERE urgency = 'CRITICAL'").get().cnt;
+  const userCount = database.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
+  const feedbackCount = database.prepare('SELECT COUNT(*) as cnt FROM feedback').get().cnt;
+  const adminCount = database.prepare('SELECT COUNT(*) as cnt FROM admins').get().cnt;
+
+  let dbSizeBytes = 0;
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      dbSizeBytes = fs.statSync(DB_PATH).size;
+    }
+  } catch {}
+
+  return {
+    engine: 'SQLite WAL (Real-Time Reactive)',
+    status: 'HEALTHY',
+    tables: {
+      tickets: ticketCount,
+      openTickets,
+      criticalTickets,
+      users: userCount,
+      feedback: feedbackCount,
+      admins: adminCount
+    },
+    storage: {
+      dbSizeKB: Math.round(dbSizeBytes / 1024),
+      walMode: true,
+      path: DB_PATH
+    },
+    realtimeEvents: {
+      cachedEvents: recentDBEvents.length,
+      lastEvent: recentDBEvents[0] || null
+    },
+    timestamp: new Date().toISOString()
+  };
+}
+
+// -----------------------------------------------------------------------------
+// User CRUD with Real-Time Event Dispatch
 // -----------------------------------------------------------------------------
 export function createUser(name, email, password, phone) {
+  const database = getDB();
+  const normalizedEmail = String(email).trim().toLowerCase();
   const hash = bcrypt.hashSync(password, 10);
-  const stmt = db.prepare(
+  const stmt = database.prepare(
     'INSERT INTO users (name, email, password_hash, phone) VALUES (?, ?, ?, ?)'
   );
-  const result = stmt.run(name, email, hash, phone || null);
-  return { id: result.lastInsertRowid, name, email, phone };
+  const result = stmt.run(name.trim(), normalizedEmail, hash, phone?.trim() || null);
+  const createdUser = { id: Number(result.lastInsertRowid), name: name.trim(), email: normalizedEmail, phone: phone?.trim() || null };
+
+  // Dispatch real-time event
+  recordRealtimeEvent('INSERT', 'users', createdUser, `New citizen registered: ${createdUser.name} (${createdUser.email})`);
+
+  return createdUser;
 }
 
 export function getUserByEmail(email) {
-  return db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (!email) return null;
+  const database = getDB();
+  const normalizedEmail = String(email).trim().toLowerCase();
+  return database.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(normalizedEmail);
+}
+
+export function getUserById(id) {
+  if (!id) return null;
+  const database = getDB();
+  return database.prepare('SELECT id, name, email, phone, created_at FROM users WHERE id = ?').get(id);
 }
 
 export function verifyUserPassword(user, password) {
+  if (!user || !user.password_hash || !password) return false;
   return bcrypt.compareSync(password, user.password_hash);
 }
 
@@ -221,18 +332,23 @@ export function verifyUserPassword(user, password) {
 // Admin CRUD
 // -----------------------------------------------------------------------------
 export function getAdminByAdminId(adminId) {
-  return db.prepare('SELECT * FROM admins WHERE admin_id = ?').get(adminId);
+  if (!adminId) return null;
+  const database = getDB();
+  const cleanId = String(adminId).trim().toLowerCase();
+  return database.prepare('SELECT * FROM admins WHERE LOWER(admin_id) = ?').get(cleanId);
 }
 
 export function verifyAdminPassword(admin, password) {
+  if (!admin || !admin.password_hash || !password) return false;
   return bcrypt.compareSync(password, admin.password_hash);
 }
 
 // -----------------------------------------------------------------------------
-// Ticket CRUD
+// Ticket CRUD with Real-Time Event Dispatch
 // -----------------------------------------------------------------------------
 export function getAllTickets() {
-  return db.prepare(`
+  const database = getDB();
+  return database.prepare(`
     SELECT t.*,
            ROUND(AVG(f.rating), 1) as avg_rating,
            COUNT(f.id) as feedback_count
@@ -244,11 +360,22 @@ export function getAllTickets() {
 }
 
 export function getTicketById(id) {
-  return db.prepare('SELECT * FROM tickets WHERE id = ?').get(id);
+  if (!id) return null;
+  const database = getDB();
+  return database.prepare(`
+    SELECT t.*,
+           ROUND(AVG(f.rating), 1) as avg_rating,
+           COUNT(f.id) as feedback_count
+    FROM tickets t
+    LEFT JOIN feedback f ON t.id = f.ticket_id
+    WHERE t.id = ?
+    GROUP BY t.id
+  `).get(id);
 }
 
 export function createTicket(data) {
-  const stmt = db.prepare(`
+  const database = getDB();
+  const stmt = database.prepare(`
     INSERT INTO tickets (user_id, description, category, urgency, department, location_name, latitude, longitude, sla_deadline, is_emergency, status, created_at)
     VALUES (@user_id, @description, @category, @urgency, @department, @location_name, @latitude, @longitude, @sla_deadline, @is_emergency, @status, @created_at)
   `);
@@ -266,10 +393,22 @@ export function createTicket(data) {
     status: data.status || 'OPEN',
     created_at: data.created_at || new Date().toISOString()
   });
-  return getTicketById(result.lastInsertRowid);
+
+  const createdTicket = getTicketById(result.lastInsertRowid);
+
+  // Dispatch real-time event
+  recordRealtimeEvent(
+    'INSERT',
+    'tickets',
+    createdTicket,
+    `New Ticket #${createdTicket.id} [${createdTicket.urgency}]: "${createdTicket.description?.substring(0, 40)}..."`
+  );
+
+  return createdTicket;
 }
 
 export function updateTicket(id, updates) {
+  const database = getDB();
   const fields = [];
   const values = {};
 
@@ -296,33 +435,58 @@ export function updateTicket(id, updates) {
   if (fields.length === 0) return getTicketById(id);
 
   values.id = id;
-  const stmt = db.prepare(`UPDATE tickets SET ${fields.join(', ')} WHERE id = @id`);
+  const stmt = database.prepare(`UPDATE tickets SET ${fields.join(', ')} WHERE id = @id`);
   stmt.run(values);
-  return getTicketById(id);
+  const updatedTicket = getTicketById(id);
+
+  if (updatedTicket) {
+    recordRealtimeEvent(
+      'UPDATE',
+      'tickets',
+      updatedTicket,
+      `Ticket #${id} updated -> Status: ${updatedTicket.status} | Urgency: ${updatedTicket.urgency}`
+    );
+  }
+
+  return updatedTicket;
 }
 
 export function deleteTicket(id) {
+  const database = getDB();
   const ticket = getTicketById(id);
   if (!ticket) return null;
-  db.prepare('DELETE FROM tickets WHERE id = ?').run(id);
+  database.prepare('DELETE FROM tickets WHERE id = ?').run(id);
+
+  recordRealtimeEvent('DELETE', 'tickets', { id }, `Ticket #${id} deleted from municipal records`);
+
   return ticket;
 }
 
 // -----------------------------------------------------------------------------
-// Feedback CRUD
+// Feedback CRUD with Real-Time Event Dispatch
 // -----------------------------------------------------------------------------
 export function createFeedback(ticketId, userId, rating, comment) {
-  const stmt = db.prepare(
+  const database = getDB();
+  const stmt = database.prepare(
     'INSERT INTO feedback (ticket_id, user_id, rating, comment) VALUES (?, ?, ?, ?)'
   );
   const result = stmt.run(ticketId, userId || null, rating, comment || null);
-  const created = db.prepare('SELECT * FROM feedback WHERE id = ?').get(result.lastInsertRowid);
+  const created = database.prepare('SELECT * FROM feedback WHERE id = ?').get(result.lastInsertRowid);
   syncFeedbackToCSV();
+
+  recordRealtimeEvent(
+    'INSERT',
+    'feedback',
+    created,
+    `Feedback submitted for Ticket #${ticketId}: ${rating} Star(s)`
+  );
+
   return created;
 }
 
 export function getFeedbackForTicket(ticketId) {
-  return db.prepare(`
+  const database = getDB();
+  return database.prepare(`
     SELECT f.*, u.name as user_name, u.email as user_email
     FROM feedback f
     LEFT JOIN users u ON f.user_id = u.id
@@ -332,14 +496,16 @@ export function getFeedbackForTicket(ticketId) {
 }
 
 export function getAverageFeedbackRating(ticketId) {
-  const result = db.prepare(
+  const database = getDB();
+  const result = database.prepare(
     'SELECT AVG(rating) as avg_rating, COUNT(*) as total FROM feedback WHERE ticket_id = ?'
   ).get(ticketId);
   return { avgRating: result.avg_rating ? Math.round(result.avg_rating * 10) / 10 : null, total: result.total };
 }
 
 export function getAllFeedback() {
-  return db.prepare(`
+  const database = getDB();
+  return database.prepare(`
     SELECT f.*, u.name as user_name, u.email as user_email, t.description as ticket_description, t.category as ticket_category, t.department as ticket_department
     FROM feedback f
     LEFT JOIN users u ON f.user_id = u.id
@@ -399,11 +565,9 @@ export function syncFeedbackToCSV() {
 
     // Prepend UTF-8 BOM so Microsoft Excel directly opens with correct formatting
     fs.writeFileSync(CSV_PATH, '\uFEFF' + lines.join('\r\n'), 'utf8');
-    console.log(`📊 Synchronized ${feedbackRows.length} feedback record(s) to ${CSV_PATH}`);
     return CSV_PATH;
   } catch (err) {
     console.error('Error syncing feedback to CSV:', err.message);
     return null;
   }
 }
-

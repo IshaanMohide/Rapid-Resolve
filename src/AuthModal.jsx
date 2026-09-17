@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import {
   X, UserPlus, LogIn, Mail, Lock, Phone, User,
-  Eye, EyeOff, AlertTriangle, CheckCircle2, Sparkles
+  Eye, EyeOff, AlertTriangle, CheckCircle2, Sparkles, ArrowRight, WifiOff
 } from 'lucide-react';
 import { safeString } from './utils.js';
 
@@ -17,7 +17,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [errorCode, setErrorCode] = useState('');
   const [success, setSuccess] = useState('');
+  const [showOfflineOption, setShowOfflineOption] = useState(false);
 
   if (!isOpen) return null;
 
@@ -27,26 +29,72 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
     setPassword('');
     setPhone('');
     setError('');
+    setErrorCode('');
     setSuccess('');
+    setShowOfflineOption(false);
   };
 
   const toggleMode = () => {
     setMode(mode === 'login' ? 'signup' : 'login');
-    resetForm();
+    setError('');
+    setErrorCode('');
+    setSuccess('');
+    setShowOfflineOption(false);
+  };
+
+  const handleSwitchToLoginWithEmail = () => {
+    setMode('login');
+    setError('');
+    setErrorCode('');
+    setShowOfflineOption(false);
+  };
+
+  const handleContinueOffline = () => {
+    const offlineUser = {
+      id: 9999,
+      name: name.trim() || 'Citizen Responder',
+      email: email.trim().toLowerCase(),
+      phone: phone.trim() || null,
+      isOffline: true
+    };
+    const offlineToken = `offline_citizen_${Date.now()}`;
+    sessionStorage.setItem('rapidresolve_user_token', offlineToken);
+    sessionStorage.setItem('rapidresolve_user', JSON.stringify(offlineUser));
+    onAuthSuccess(offlineUser, offlineToken);
+    setSuccess('Signed in via Local Real-Time Cache! Logging you in...');
+    setTimeout(() => onClose(), 600);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setErrorCode('');
     setSuccess('');
+    setShowOfflineOption(false);
 
-    if (!email.trim() || !password.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
       setError('Email and password are required.');
       return;
     }
-    if (mode === 'signup' && !name.trim()) {
-      setError('Name is required for sign up.');
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      setError('Please enter a valid email address (e.g. name@example.com).');
       return;
+    }
+
+    if (mode === 'signup') {
+      if (!name.trim()) {
+        setError('Full name is required for registration.');
+        return;
+      }
+      if (cleanPassword.length < 6) {
+        setError('Password must be at least 6 characters long.');
+        return;
+      }
     }
 
     setLoading(true);
@@ -54,31 +102,38 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
       if (mode === 'signup') {
         const res = await axios.post(`${API_BASE}/auth/signup`, {
           name: name.trim(),
-          email: email.trim(),
-          password: password.trim(),
+          email: cleanEmail,
+          password: cleanPassword,
           phone: phone.trim() || undefined
-        }, { timeout: 5000 });
+        }, { timeout: 6000 });
 
         if (res.data?.success) {
-          setSuccess('Account created! Logging you in...');
+          setSuccess('Account created successfully! Logging you in...');
           // Auto-login after signup
-          const loginRes = await axios.post(`${API_BASE}/auth/login`, {
-            email: email.trim(),
-            password: password.trim()
-          }, { timeout: 5000 });
+          try {
+            const loginRes = await axios.post(`${API_BASE}/auth/login`, {
+              email: cleanEmail,
+              password: cleanPassword
+            }, { timeout: 5000 });
 
-          if (loginRes.data?.success) {
-            sessionStorage.setItem('rapidresolve_user_token', loginRes.data.token);
-            sessionStorage.setItem('rapidresolve_user', JSON.stringify(loginRes.data.user));
-            onAuthSuccess(loginRes.data.user, loginRes.data.token);
-            setTimeout(() => onClose(), 500);
+            if (loginRes.data?.success) {
+              sessionStorage.setItem('rapidresolve_user_token', loginRes.data.token);
+              sessionStorage.setItem('rapidresolve_user', JSON.stringify(loginRes.data.user));
+              onAuthSuccess(loginRes.data.user, loginRes.data.token);
+              setTimeout(() => onClose(), 600);
+              return;
+            }
+          } catch {
+            // If auto-login fails, switch to login tab
+            setMode('login');
+            setSuccess('Account registered! Please sign in with your password.');
           }
         }
       } else {
         const res = await axios.post(`${API_BASE}/auth/login`, {
-          email: email.trim(),
-          password: password.trim()
-        }, { timeout: 5000 });
+          email: cleanEmail,
+          password: cleanPassword
+        }, { timeout: 6000 });
 
         if (res.data?.success) {
           sessionStorage.setItem('rapidresolve_user_token', res.data.token);
@@ -89,8 +144,26 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         }
       }
     } catch (err) {
-      const raw = err.response?.data?.error || err.response?.data || err.message;
-      setError(safeString(raw, 'Authentication failed. Please try again.'));
+      const status = err.response?.status;
+      const data = err.response?.data;
+      const code = data?.code;
+
+      setErrorCode(code || '');
+
+      if (status === 409 || code === 'EMAIL_EXISTS') {
+        setError('An account with this email already exists.');
+      } else if (status === 401 || code === 'USER_NOT_FOUND' || code === 'INVALID_PASSWORD') {
+        setError(data?.error || 'Invalid email or password. Please try again.');
+      } else if (status === 503 || code === 'BACKEND_OFFLINE' || err.code === 'ECONNREFUSED' || !err.response) {
+        setError('Database server is initializing or offline on port 5000.');
+        setShowOfflineOption(true);
+      } else if (status === 500) {
+        setError(data?.error || 'Database connection error. You can continue using offline guest mode.');
+        setShowOfflineOption(true);
+      } else {
+        const raw = data?.error || err.message;
+        setError(safeString(raw, 'Authentication failed. Please verify your details.'));
+      }
     } finally {
       setLoading(false);
     }
@@ -114,7 +187,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                   {mode === 'login' ? 'Welcome Back' : 'Create Account'}
                 </h2>
                 <p className="text-xs text-sky-100 font-medium">
-                  Rapid Resolve Citizen Portal
+                  Rapid Resolve Citizen Portal • Chhatrapati Sambhaji Nagar
                 </p>
               </div>
             </div>
@@ -130,11 +203,43 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 anim-fade-in-up">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              <span>{safeString(error)}</span>
+            <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-xl text-xs font-medium space-y-2 anim-fade-in-up">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{safeString(error)}</span>
+              </div>
+
+              {/* Helpful 1-click helper if email already exists */}
+              {errorCode === 'EMAIL_EXISTS' && mode === 'signup' && (
+                <button
+                  type="button"
+                  onClick={handleSwitchToLoginWithEmail}
+                  className="mt-1 inline-flex items-center gap-1.5 text-xs font-bold text-sky-700 hover:text-sky-800 bg-sky-100 hover:bg-sky-200 px-3 py-1.5 rounded-lg transition"
+                >
+                  <span>Already registered? Click to Sign In</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Offline fallback button if backend is offline/error */}
+              {showOfflineOption && (
+                <div className="pt-1 border-t border-rose-200">
+                  <p className="text-[11px] text-rose-600 mb-1.5">
+                    Would you like to continue in local session mode while the database reconnects?
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleContinueOffline}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition shadow-sm"
+                  >
+                    <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Continue in Offline Citizen Mode</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
+
           {success && (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 anim-fade-in-up">
               <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
@@ -153,7 +258,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter your full name"
+                  placeholder="e.g. Ishaan Mohide"
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition"
                 />
               </div>
@@ -186,7 +291,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
+                placeholder={mode === 'signup' ? 'Minimum 6 characters' : 'Enter your password'}
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-10 pr-10 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition"
               />
               <button

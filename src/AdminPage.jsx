@@ -34,6 +34,28 @@ export default function AdminPage() {
     let es;
     try {
       es = new EventSource(`${API_BASE}/events`);
+      es.addEventListener('db_change', (e) => {
+        try {
+          const change = JSON.parse(e.data);
+          if (change?.table === 'tickets') {
+            if (change.type === 'INSERT' && change.record) {
+              setTickets((prev) => {
+                if (prev.some((t) => t.id === change.record.id)) return prev;
+                return [change.record, ...prev];
+              });
+            } else if (change.type === 'UPDATE' && change.record) {
+              setTickets((prev) =>
+                prev.map((t) => (t.id === change.record.id ? { ...t, ...change.record } : t))
+              );
+            } else if (change.type === 'DELETE' && change.record?.id) {
+              setTickets((prev) => prev.filter((t) => t.id !== change.record.id));
+            }
+          }
+        } catch (err) {
+          console.error('SSE db_change parse error in AdminPage:', err);
+        }
+      });
+
       es.addEventListener('ticket_created', (e) => {
         try {
           const payload = JSON.parse(e.data);

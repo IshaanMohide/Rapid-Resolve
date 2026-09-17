@@ -11,7 +11,10 @@ import axios from 'axios';
 
 import {
   getDB,
-  createUser, getUserByEmail, verifyUserPassword,
+  getDBStats,
+  getRecentDBEvents,
+  dbEventEmitter,
+  createUser, getUserByEmail, getUserById, verifyUserPassword,
   getAdminByAdminId, verifyAdminPassword,
   getAllTickets, getTicketById, createTicket, updateTicket, deleteTicket,
   createFeedback, getFeedbackForTicket, getAverageFeedbackRating, getAllFeedback,
@@ -26,10 +29,15 @@ app.use(cors());
 app.use(express.json());
 
 // -----------------------------------------------------------------------------
-// Initialize SQLite Database
+// Initialize Real-Time SQLite Database
 // -----------------------------------------------------------------------------
 const db = getDB();
-console.log('✅ SQLite Database connected and ready.');
+console.log('⚡ Real-Time SQLite Database connected and ready.');
+
+// Forward all database mutations directly to Real-Time SSE clients
+dbEventEmitter.on('db:change', (eventObj) => {
+  broadcastRealtimeChange(eventObj);
+});
 
 // -----------------------------------------------------------------------------
 // AI & SMS Clients Setup with Graceful Fallbacks
@@ -306,18 +314,60 @@ async function dispatchEmergencyNotification(ticket) {
 // API Endpoints
 // -----------------------------------------------------------------------------
 
-// Health & Diagnostic Endpoint
+// Health & Real-Time Diagnostic Endpoint
 app.get('/api/health', (req, res) => {
-  const ticketCount = db.prepare('SELECT COUNT(*) as cnt FROM tickets').get();
-  const userCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
+  try {
+    const stats = getDBStats();
+    res.json({
+      status: 'online',
+      timestamp: new Date().toISOString(),
+      database: 'SQLite (Real-Time Reactive WAL)',
+      aiEngine: geminiApiKey ? 'Google Gemini 3.6 Flash (Live API)' : (anthropicClient ? 'Claude 3 Haiku' : 'Local Heuristic Rule Engine'),
+      smsDispatch: twilioClient ? 'Twilio Live' : 'Console Simulation',
+      ticketCount: stats.tables.tickets,
+      userCount: stats.tables.users,
+      activeSSEClients: sseClients.size,
+      dbStats: stats
+    });
+  } catch (err) {
+    console.error('Health check error:', err);
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+// Real-Time Database Telemetry Endpoint
+app.get('/api/realtime/stats', (req, res) => {
+  try {
+    const stats = getDBStats();
+    res.json({
+      success: true,
+      stats: {
+        ...stats,
+        activeSSEClients: sseClients.size
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Real-Time Database Event History
+app.get('/api/realtime/history', (req, res) => {
+  try {
+    const events = getRecentDBEvents();
+    res.json({ success: true, count: events.length, events });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Real-Time Ping Endpoint
+app.all('/api/realtime/ping', (req, res) => {
   res.json({
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    database: 'SQLite (Real-Time Persistent)',
-    aiEngine: geminiApiKey ? 'Google Gemini 3.6 Flash (Live API)' : (anthropicClient ? 'Claude 3 Haiku' : 'Local Heuristic Rule Engine'),
-    smsDispatch: twilioClient ? 'Twilio Live' : 'Console Simulation',
-    ticketCount: ticketCount.cnt,
-    userCount: userCount.cnt
+    pong: true,
+    serverTime: new Date().toISOString(),
+    dbEngine: 'SQLite WAL Reactive',
+    activeClients: sseClients.size
   });
 });
 
@@ -325,44 +375,76 @@ app.get('/api/health', (req, res) => {
 // Citizen Auth Endpoints (Signup / Login / Verify)
 // -----------------------------------------------------------------------------
 app.post('/api/auth/signup', (req, res) => {
-  const { name, email, password, phone } = req.body;
-  if (!name || !email || !password) {
-    return res.status(400).json({ success: false, error: 'Name, email, and password are required.' });
-  }
-
   try {
-    const existing = getUserByEmail(email.trim());
-    if (existing) {
-      return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
+    const { name, email, password, phone } = req.body || {};
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Full Name is required.', code: 'INVALID_NAME' });
+    }
+    if (!email || !email.trim()) {
+      return res.status(400).json({ success: false, error: 'Email address is required.', code: 'INVALID_EMAIL' });
+    }
+    
+    // Basic email sanity check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const cleanEmail = email.trim().toLowerCase();
+    if (!emailRegex.test(cleanEmail)) {
+      return res.status(400).json({ success: false, error: 'Please provide a valid email address.', code: 'INVALID_EMAIL_FORMAT' });
     }
 
-    const user = createUser(name.trim(), email.trim(), password, phone?.trim());
-    console.log(`✅ New citizen registered: ${user.name} (${user.email})`);
+    if (!password || password.length < 6) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.', code: 'WEAK_PASSWORD' });
+    }
+
+    const existing = getUserByEmail(cleanEmail);
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: 'An account with this email already exists. Please sign in.',
+        code: 'EMAIL_EXISTS',
+        existingEmail: cleanEmail
+      });
+    }
+
+    const user = createUser(name.trim(), cleanEmail, password, phone?.trim());
+    console.log(`✅ [Real-Time DB] New citizen registered: ${user.name} (${user.email})`);
     return res.status(201).json({ success: true, user });
   } catch (err) {
-    console.error('Signup error:', err.message);
-    return res.status(500).json({ success: false, error: 'Registration failed. Please try again.' });
+    console.error('Signup error:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Registration failed due to server error: ' + (err.message || 'Unknown error'),
+      code: 'DB_ERROR'
+    });
   }
 });
 
 app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ success: false, error: 'Email and password are required.' });
-  }
-
   try {
-    const user = getUserByEmail(email.trim());
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: 'Email and password are required.', code: 'MISSING_FIELDS' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const user = getUserByEmail(cleanEmail);
     if (!user) {
-      return res.status(401).json({ success: false, error: 'Invalid email or password.' });
+      return res.status(401).json({
+        success: false,
+        error: 'No account found with this email address. Please create an account first.',
+        code: 'USER_NOT_FOUND'
+      });
     }
 
     if (!verifyUserPassword(user, password)) {
-      return res.status(401).json({ success: false, error: 'Invalid email or password.' });
+      return res.status(401).json({
+        success: false,
+        error: 'Incorrect password. Please verify your password and try again.',
+        code: 'INVALID_PASSWORD'
+      });
     }
 
     const sessionToken = Buffer.from(`citizen:${user.id}:${Date.now()}:${Math.random()}`).toString('base64');
-    console.log(`✅ Citizen logged in: ${user.name} (${user.email})`);
+    console.log(`✅ [Real-Time DB] Citizen logged in: ${user.name} (${user.email})`);
     return res.json({
       success: true,
       token: sessionToken,
@@ -374,24 +456,22 @@ app.post('/api/auth/login', (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Login error:', err.message);
-    return res.status(500).json({ success: false, error: 'Login failed.' });
+    console.error('Login error:', err);
+    return res.status(500).json({ success: false, error: 'Login failed: ' + (err.message || 'Unknown error') });
   }
 });
 
 app.post('/api/auth/verify', (req, res) => {
-  const { token } = req.body;
+  const { token } = req.body || {};
   if (!token) {
     return res.status(401).json({ success: false, error: 'No token provided' });
   }
-  // Decode token to get user ID
   try {
     const decoded = Buffer.from(token, 'base64').toString();
     const parts = decoded.split(':');
     if (parts[0] === 'citizen' && parts[1]) {
       const userId = parseInt(parts[1], 10);
-      const stmt = db.prepare('SELECT id, name, email, phone FROM users WHERE id = ?');
-      const user = stmt.get(userId);
+      const user = getUserById(userId);
       if (user) {
         return res.json({ success: true, user });
       }
@@ -468,7 +548,7 @@ app.post('/api/admin/verify', (req, res) => {
 // -----------------------------------------------------------------------------
 const sseClients = new Set();
 
-app.get('/api/events', (req, res) => {
+function handleSSEConnection(req, res) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -478,9 +558,14 @@ app.get('/api/events', (req, res) => {
   sseClients.add(res);
 
   // Initial connection handshake
-  const allTickets = getAllTickets();
-  res.write(`event: connected\ndata: ${JSON.stringify({ time: new Date().toISOString() })}\n\n`);
-  res.write(`event: initial\ndata: ${JSON.stringify(allTickets)}\n\n`);
+  try {
+    const allTickets = getAllTickets();
+    const dbStats = getDBStats();
+    res.write(`event: connected\ndata: ${JSON.stringify({ time: new Date().toISOString(), dbStats })}\n\n`);
+    res.write(`event: initial\ndata: ${JSON.stringify(allTickets)}\n\n`);
+  } catch (err) {
+    console.error('Error sending initial SSE handshake:', err);
+  }
 
   const keepAlive = setInterval(() => {
     try {
@@ -489,13 +574,27 @@ app.get('/api/events', (req, res) => {
       clearInterval(keepAlive);
       sseClients.delete(res);
     }
-  }, 20000);
+  }, 15000);
 
   req.on('close', () => {
     clearInterval(keepAlive);
     sseClients.delete(res);
   });
-});
+}
+
+app.get('/api/events', handleSSEConnection);
+app.get('/api/realtime/events', handleSSEConnection);
+
+function broadcastRealtimeChange(eventObj) {
+  const message = `event: db_change\ndata: ${JSON.stringify(eventObj)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(message);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
 
 function broadcastEvent(eventType, payload) {
   const normalized = (payload && payload.id && !payload.ticket)
